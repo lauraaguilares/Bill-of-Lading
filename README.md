@@ -48,19 +48,20 @@ cliente, descarga el BOL). El archivo maestro nunca se guarda permanentemente en
 
 ## Desplegar — paso a paso
 
-### 1. Subir a GitHub
+### 1. Descomprimir y subir a GitHub
+
+El repo ya viene inicializado (con commit incluido) dentro del .zip/.tar.gz que te compartí —
+no hace falta correr `git init` de nuevo, solo conectarlo a GitHub y subirlo:
 
 ```bash
-git init
-git add .
-git commit -m "BMM Document Generator - BOL"
-git branch -M main
+tar -xzf bmm-bol-generator.tar.gz
+cd bmm-bol-generator
 git remote add origin https://github.com/TU_USUARIO/bmm-document-generator.git
 git push -u origin main
 ```
 
 (Si no tienes el repo creado todavía, créalo primero vacío en github.com/new — sin README,
-sin .gitignore, para que no choque con este que ya trae uno.)
+sin .gitignore, para que no choque con el que ya viene en el proyecto.)
 
 ### 2. Desplegar en Render.com (gratis)
 
