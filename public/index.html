@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>BMM · Generador de documentos</title>
+<style>
+  :root {
+    --cream: #FBF3E7;
+    --panel: #FFFFFF;
+    --ink: #2B2320;
+    --ink-soft: #6B5F56;
+    --pink: #E63F86;
+    --pink-dark: #C22568;
+    --tan: #F0C78A;
+    --line: #E7DCC9;
+    --error: #C0392B;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--cream);
+    color: var(--ink);
+    font-family: -apple-system, "Segoe UI", Helvetica, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  header {
+    padding: 28px 24px 18px;
+    text-align: center;
+  }
+  header .brand {
+    font-size: 13px;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--pink-dark);
+    font-weight: 700;
+  }
+  header h1 {
+    margin: 6px 0 0;
+    font-size: 26px;
+    font-weight: 700;
+  }
+  header p {
+    margin: 6px 0 0;
+    color: var(--ink-soft);
+    font-size: 14px;
+  }
+  main {
+    max-width: 560px;
+    margin: 0 auto;
+    padding: 8px 20px 60px;
+  }
+  .card {
+    background: var(--panel);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    padding: 22px;
+    margin-top: 16px;
+    box-shadow: 0 1px 2px rgba(43,35,32,0.04);
+  }
+  .step-label {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--pink-dark);
+    margin-bottom: 14px;
+  }
+  .step-label .dot {
+    width: 20px; height: 20px;
+    border-radius: 50%;
+    background: var(--pink);
+    color: white;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 11px;
+  }
+  label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+    color: var(--ink);
+  }
+  .hint {
+    font-size: 12px;
+    color: var(--ink-soft);
+    margin: -4px 0 12px;
+  }
+  input[type="file"], select, input[type="text"] {
+    width: 100%;
+    padding: 10px 12px;
+    border: 1.5px solid var(--line);
+    border-radius: 8px;
+    font-size: 14px;
+    background: var(--cream);
+    color: var(--ink);
+    margin-bottom: 14px;
+  }
+  select:disabled, input:disabled { opacity: 0.5; }
+  button {
+    width: 100%;
+    padding: 12px;
+    border: none;
+    border-radius: 8px;
+    background: var(--pink);
+    color: white;
+    font-size: 15px;
+    font-weight: 700;
+    cursor: pointer;
+    transition: background 0.15s ease;
+  }
+  button:hover:not(:disabled) { background: var(--pink-dark); }
+  button:disabled { background: #D8CBB8; cursor: not-allowed; }
+  .format-toggle {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 14px;
+  }
+  .format-toggle button {
+    flex: 1;
+    background: var(--cream);
+    color: var(--ink);
+    border: 1.5px solid var(--line);
+    font-weight: 600;
+    font-size: 13px;
+    padding: 9px;
+  }
+  .format-toggle button.active {
+    background: var(--pink);
+    color: white;
+    border-color: var(--pink);
+  }
+  #status {
+    margin-top: 14px;
+    font-size: 13px;
+    color: var(--ink-soft);
+    min-height: 18px;
+  }
+  #status.error { color: var(--error); font-weight: 600; }
+  #status.ok { color: #2E7D4F; font-weight: 600; }
+  .two-stop-fields { display: none; }
+  .two-stop-fields.visible { display: block; }
+  footer {
+    text-align: center;
+    font-size: 12px;
+    color: var(--ink-soft);
+    padding: 20px;
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="brand">Best Mexico Movers</div>
+  <h1>Generador de documentos</h1>
+  <p>Sube el archivo maestro, elige el cliente, descarga el Bill of Lading.</p>
+</header>
+
+<main>
+  <div class="card">
+    <div class="step-label"><span class="dot">1</span> Archivo maestro</div>
+    <label for="archivo">BMM Weeklies (.xlsx)</label>
+    <input type="file" id="archivo" accept=".xlsx" />
+    <p class="hint">Se lee la hoja "PASTE HERE". El archivo no se guarda en el servidor.</p>
+  </div>
+
+  <div class="card">
+    <div class="step-label"><span class="dot">2</span> Cliente</div>
+    <label for="cliente">Selecciona el embarque</label>
+    <select id="cliente" disabled>
+      <option value="">Sube un archivo primero…</option>
+    </select>
+
+    <div id="dosStopsFields" class="two-stop-fields">
+      <label for="stop1">Primer stop (pickup)</label>
+      <input type="text" id="stop1" placeholder="Ej. 133 Cook St., Barrie, Ontario" />
+      <label for="stop2">Segundo stop (pickup)</label>
+      <input type="text" id="stop2" placeholder="Ej. 57 Berczy St., Barrie, Ontario" />
+      <p class="hint">Solo aplica si este embarque Bonded tiene 2 direcciones de recolección.</p>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="step-label"><span class="dot">3</span> Generar</div>
+    <div class="format-toggle">
+      <button type="button" id="btnPdf" class="active">PDF</button>
+      <button type="button" id="btnXlsx">Excel</button>
+    </div>
+    <button id="btnGenerar" disabled>Selecciona un cliente primero</button>
+    <div id="status"></div>
+  </div>
+</main>
+
+<footer>BMM Document Generator</footer>
+
+<script>
+  const archivoInput = document.getElementById('archivo');
+  const clienteSelect = document.getElementById('cliente');
+  const dosStopsFields = document.getElementById('dosStopsFields');
+  const btnGenerar = document.getElementById('btnGenerar');
+  const btnPdf = document.getElementById('btnPdf');
+  const btnXlsx = document.getElementById('btnXlsx');
+  const statusEl = document.getElementById('status');
+
+  let formato = 'pdf';
+  let archivoActual = null;
+
+  btnPdf.addEventListener('click', () => setFormato('pdf'));
+  btnXlsx.addEventListener('click', () => setFormato('xlsx'));
+
+  function setFormato(f) {
+    formato = f;
+    btnPdf.classList.toggle('active', f === 'pdf');
+    btnXlsx.classList.toggle('active', f === 'xlsx');
+  }
+
+  function setStatus(msg, type) {
+    statusEl.textContent = msg || '';
+    statusEl.className = type || '';
+  }
+
+  archivoInput.addEventListener('change', async () => {
+    const file = archivoInput.files[0];
+    if (!file) return;
+    archivoActual = file;
+
+    clienteSelect.disabled = true;
+    clienteSelect.innerHTML = '<option value="">Leyendo archivo…</option>';
+    setStatus('');
+
+    const formData = new FormData();
+    formData.append('archivo', file);
+
+    try {
+      const res = await fetch('/parse-source', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo leer el archivo.');
+
+      clienteSelect.innerHTML = '<option value="">— Elige un cliente —</option>';
+      data.clientes.forEach((c) => {
+        const opt = document.createElement('option');
+        opt.value = c.row;
+        opt.textContent = c.clientName + (c.tags ? ' (' + c.tags + ')' : '');
+        opt.dataset.tags = c.tags.toLowerCase();
+        clienteSelect.appendChild(opt);
+      });
+      clienteSelect.disabled = false;
+    } catch (err) {
+      setStatus(err.message, 'error');
+      clienteSelect.innerHTML = '<option value="">Sube un archivo primero…</option>';
+    }
+  });
+
+  clienteSelect.addEventListener('change', () => {
+    const selected = clienteSelect.options[clienteSelect.selectedIndex];
+    const esBonded = selected && selected.dataset.tags && selected.dataset.tags.includes('bonded');
+    dosStopsFields.classList.toggle('visible', !!esBonded);
+
+    btnGenerar.disabled = !clienteSelect.value;
+    btnGenerar.textContent = clienteSelect.value ? 'Generar BOL' : 'Selecciona un cliente primero';
+  });
+
+  btnGenerar.addEventListener('click', async () => {
+    if (!archivoActual || !clienteSelect.value) return;
+
+    btnGenerar.disabled = true;
+    btnGenerar.textContent = 'Generando…';
+    setStatus('Generando el documento…');
+
+    const formData = new FormData();
+    formData.append('archivo', archivoActual);
+    formData.append('fila', clienteSelect.value);
+    const stop1 = document.getElementById('stop1').value.trim();
+    const stop2 = document.getElementById('stop2').value.trim();
+    if (stop1) formData.append('segundaDireccionPickup1', stop1);
+    if (stop2) formData.append('segundaDireccionPickup2', stop2);
+
+    try {
+      const res = await fetch('/generate/bol-from-source?format=' + formato, { method: 'POST', body: formData });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'No se pudo generar el documento.');
+      }
+      const blob = await res.blob();
+      const nombreCliente = clienteSelect.options[clienteSelect.selectedIndex].textContent;
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'BOL_' + nombreCliente.replace(/[^a-z0-9]+/gi, '_') + '.' + formato;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      setStatus('Listo, se descargó el documento.', 'ok');
+    } catch (err) {
+      setStatus(err.message, 'error');
+    } finally {
+      btnGenerar.disabled = false;
+      btnGenerar.textContent = 'Generar BOL';
+    }
+  });
+</script>
+
+</body>
+</html>

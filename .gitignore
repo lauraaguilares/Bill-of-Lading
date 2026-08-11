@@ -1,0 +1,6 @@
+node_modules/
+output/*.xlsx
+output/*.pdf
+output/*.png
+server.log
+.env
