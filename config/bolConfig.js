@@ -97,7 +97,42 @@ function resolveDirection(origenPais, destinoPais) {
 }
 
 /**
- * Calcula el peso según la regla de negocio confirmada.
+ * Tabla confirmada: cubic ft y peso dependen del TIPO DE CAMIÓN (NOB Truck Type), no de
+ * "Size of the Shipment" ni de una fórmula genérica. Único caso con excepción: 26 ft, donde
+ * si el archivo trae un Weight distinto especificado, ese manda sobre el default.
+ */
+const TRUCK_SPECS = {
+  '53': { cubicFt: 2400, peso: 15600, pesoSobreescribible: false },
+  '26': { cubicFt: 1344, peso: 8735, pesoSobreescribible: true },
+  '28': { cubicFt: 1450, peso: 9425, pesoSobreescribible: false },
+};
+
+/**
+ * Determina cubic ft y peso a partir del tipo de camión (texto libre como "53 ft",
+ * "26 ft", "28 ft (PUP)") y, si aplica, el peso especificado en el archivo original.
+ * Devuelve { cubicFt, peso, reconocido }. Si el tipo de camión no matchea ninguna
+ * especificación conocida, reconocido=false y hay que resolverlo manualmente.
+ */
+function calcularCubicFtYPeso(truckType, pesoEspecificadoEnArchivo) {
+  const texto = String(truckType || '');
+  const match = texto.match(/^\s*(\d{2})/); // "53 ft" -> "53", "28 ft (PUP)" -> "28"
+  const spec = match ? TRUCK_SPECS[match[1]] : null;
+
+  if (!spec) {
+    return { cubicFt: null, peso: null, reconocido: false };
+  }
+
+  const usaOverride = spec.pesoSobreescribible && pesoEspecificadoEnArchivo != null;
+  return {
+    cubicFt: spec.cubicFt,
+    peso: usaOverride ? pesoEspecificadoEnArchivo : spec.peso,
+    reconocido: true,
+  };
+}
+
+/**
+ * Calcula el peso según la regla de negocio ANTERIOR (cubicFt x 6.5), usada solo como
+ * respaldo cuando el tipo de camión no se reconoce (ver calcularCubicFtYPeso).
  * cubicFt: number, carrier: string
  * Devuelve { valor, esManual }
  */
@@ -133,5 +168,6 @@ module.exports = {
   resolveDirection,
   resolveDirectionFromTags,
   calcularPeso,
+  calcularCubicFtYPeso,
   buildOrderNumbers,
 };
