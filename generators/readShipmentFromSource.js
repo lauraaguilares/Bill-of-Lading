@@ -12,8 +12,10 @@ const COLS = {
   TAGS: 'B',
   PMA: 'C',
   NOB_TRANSPORTATION_COMPANY: 'E',
+  NOB_TRUCK_TYPE: 'F', // "53 ft" | "26 ft" | "28 ft (PUP)" - determina cubic ft y peso
   NOB_ADDRESS: 'I', // "Address for truck" del lado Canadá/origen — NUNCA usar direcciones de Customs
   ORDER_NUMBER: 'G', // Order Number del documento de origen (solo se usa con carrier ESTES/OLD DOMINION)
+  WEIGHT: 'N', // Solo relevante como override cuando el camión es de 26 ft
   SIZE_OF_SHIPMENT: 'Q',
   CUSTOMS_BROKER: 'U',
   SOB_ADDRESS: 'AC', // "Address for truck" del lado México/destino
@@ -43,7 +45,9 @@ async function readShipmentFromSource(filePath, rowNumber, options = {}) {
   const { nombreCompleto, apellido } = parseClientName(clientRaw);
   const pma = parsePMA(get(COLS.PMA));
   const customsBroker = parseCustomsBroker(get(COLS.CUSTOMS_BROKER));
-  const cubicFt = parseCubicFt(get(COLS.SIZE_OF_SHIPMENT));
+  const cubicFtRespaldo = parseCubicFt(get(COLS.SIZE_OF_SHIPMENT)); // solo si el truck type no se reconoce
+  const truckType = String(get(COLS.NOB_TRUCK_TYPE) || '').trim();
+  const pesoEspecificado = parseWeightOverride(get(COLS.WEIGHT));
 
   return {
     clientName: nombreCompleto,
@@ -60,7 +64,11 @@ async function readShipmentFromSource(filePath, rowNumber, options = {}) {
     // Consignee = SOB. Bonded Shipper = NOB, Consignee = SOB.
     direccionNOB: parseDireccion(get(COLS.NOB_ADDRESS)),
     direccionSOB: parseDireccion(get(COLS.SOB_ADDRESS)),
-    cubicFt,
+    // Cubic ft y peso: se determinan por tipo de camión en generateBOL.js (calcularCubicFtYPeso).
+    // Estos 2 campos son el respaldo si el texto de truckType no matchea ningún tipo conocido.
+    truckType,
+    pesoEspecificado,
+    cubicFt: cubicFtRespaldo,
     // Fechas crudas de las 2 columnas de referencia. generateBOL.js decide cuál va en "Date:"
     // y cuál en "Special Instructions" según el escenario (la regla cambia por dirección).
     nobDiaParaCamion: get(COLS.NOB_DAY_FOR_TRUCK_TO_ARRIVE) ? String(get(COLS.NOB_DAY_FOR_TRUCK_TO_ARRIVE)).trim() : '',
@@ -110,13 +118,24 @@ function parseCustomsBroker(raw) {
 }
 
 /**
+ * "Weight" viene como texto libre ("8,500 LBS", "Survey shows 19,475 lbs", "8,000"). Solo
+ * se usa como override cuando el camión es de 26 ft y este campo trae un valor. Si está
+ * vacío, devuelve null (se usa el default de la tabla).
+ */
+function parseWeightOverride(raw) {
+  const texto = String(raw || '').trim();
+  if (!texto) return null;
+  const match = texto.match(/[\d,]+/);
+  return match ? Number(match[0].replace(/,/g, '')) : null;
+}
+
+/**
  * "Size of the Shipment" es texto libre ("Survey shows 1,400 ft3", "estimated 800 cf", etc.).
- * Se extrae el primer número.
+ * Se extrae el primer número. Solo se usa como respaldo si el tipo de camión no se reconoce.
  */
 function parseCubicFt(raw) {
   const match = String(raw || '').match(/[\d,]+/);
-  if (!match) throw new Error(`No se pudo extraer un número de "Size of the Shipment": "${raw}"`);
-  return Number(match[0].replace(/,/g, ''));
+  return match ? Number(match[0].replace(/,/g, '')) : null; // null: se resuelve en generateBOL si de verdad hace falta
 }
 
 /**
