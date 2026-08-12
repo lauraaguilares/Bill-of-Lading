@@ -25,9 +25,28 @@ const TEMP_DIR = path.join(__dirname, '..', 'uploads');
  * "&dl=1" o "?dl=1" para forzar descarga directa en vez de abrir la vista previa).
  */
 async function descargarArchivoMaestro(url) {
-  const res = await fetch(url);
+  const res = await fetch(url, {
+    redirect: 'follow',
+    headers: {
+      // Sin esto, Dropbox a veces devuelve una página HTML en vez del archivo real.
+      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+    },
+  });
   if (!res.ok) throw new Error(`No se pudo descargar el archivo maestro (HTTP ${res.status}). Revisa que el link de Dropbox siga siendo válido y termine en dl=1.`);
+
   const buffer = Buffer.from(await res.arrayBuffer());
+
+  // Un .xlsx real es un .zip por dentro; siempre empieza con las letras "PK". Si no,
+  // lo que se descargó fue una página HTML (el link no es de descarga directa) u otra cosa.
+  const esZipValido = buffer.length > 2 && buffer[0] === 0x50 && buffer[1] === 0x4b;
+  if (!esZipValido) {
+    throw new Error(
+      'El link de Dropbox no está devolviendo el archivo .xlsx real (parece una página web, no el ' +
+      'archivo). Verifica: 1) que termine en "dl=1" y no "dl=0", 2) que el link no haya expirado, ' +
+      '3) que el archivo siga compartido públicamente.'
+    );
+  }
+
   if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
   const filePath = path.join(TEMP_DIR, `maestro-cron-${Date.now()}.xlsx`);
   fs.writeFileSync(filePath, buffer);
