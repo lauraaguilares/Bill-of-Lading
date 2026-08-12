@@ -158,22 +158,29 @@
 <header>
   <div class="brand">Best Mexico Movers</div>
   <h1>Generador de documentos</h1>
-  <p>Sube el archivo maestro, elige el cliente, descarga el Bill of Lading.</p>
+  <p>Elige el cliente, descarga el Bill of Lading. Los datos se leen automáticamente de Drive.</p>
 </header>
 
 <main>
   <div class="card">
-    <div class="step-label"><span class="dot">1</span> Archivo maestro</div>
-    <label for="archivo">BMM Weeklies (.xlsx)</label>
-    <input type="file" id="archivo" accept=".xlsx" />
-    <p class="hint">Se lee la hoja "PASTE HERE". El archivo no se guarda en el servidor.</p>
+    <div class="step-label"><span class="dot">1</span> Fuente de datos</div>
+    <div id="driveStatus" class="hint">Cargando clientes desde Drive…</div>
+    <button type="button" id="btnReintentarDrive" style="display:none; margin-top:8px;">Reintentar</button>
+    <p class="hint" style="margin-top:14px;">
+      <a href="#" id="toggleUpload">¿Prefieres subir un archivo distinto por esta vez?</a>
+    </p>
+    <div id="uploadFallback" style="display:none; margin-top:10px;">
+      <label for="archivo">BMM Weeklies (.xlsx)</label>
+      <input type="file" id="archivo" accept=".xlsx" />
+      <p class="hint">Se lee la hoja "PASTE HERE". El archivo no se guarda en el servidor.</p>
+    </div>
   </div>
 
   <div class="card">
     <div class="step-label"><span class="dot">2</span> Cliente</div>
     <label for="cliente">Selecciona el embarque</label>
     <select id="cliente" disabled>
-      <option value="">Sube un archivo primero…</option>
+      <option value="">Cargando…</option>
     </select>
 
     <div id="dosStopsFields" class="two-stop-fields">
@@ -199,6 +206,10 @@
 <footer>BMM Document Generator</footer>
 
 <script>
+  const driveStatus = document.getElementById('driveStatus');
+  const btnReintentarDrive = document.getElementById('btnReintentarDrive');
+  const toggleUpload = document.getElementById('toggleUpload');
+  const uploadFallback = document.getElementById('uploadFallback');
   const archivoInput = document.getElementById('archivo');
   const clienteSelect = document.getElementById('cliente');
   const dosStopsFields = document.getElementById('dosStopsFields');
@@ -209,6 +220,7 @@
 
   let formato = 'pdf';
   let archivoActual = null;
+  let fuente = 'drive'; // 'drive' | 'archivo'
 
   btnPdf.addEventListener('click', () => setFormato('pdf'));
   btnXlsx.addEventListener('click', () => setFormato('xlsx'));
@@ -224,10 +236,58 @@
     statusEl.className = type || '';
   }
 
+  function poblarClientes(clientes) {
+    clienteSelect.innerHTML = '<option value="">— Elige un cliente —</option>';
+    clientes.forEach((c) => {
+      const opt = document.createElement('option');
+      opt.value = c.row;
+      opt.textContent = c.clientName + (c.tags ? ' (' + c.tags + ')' : '');
+      opt.dataset.tags = c.tags.toLowerCase();
+      clienteSelect.appendChild(opt);
+    });
+    clienteSelect.disabled = false;
+  }
+
+  // --- Carga automática desde Drive al abrir la página ---
+  async function cargarDesdeDrive() {
+    fuente = 'drive';
+    driveStatus.textContent = 'Cargando clientes desde Drive…';
+    btnReintentarDrive.style.display = 'none';
+    clienteSelect.disabled = true;
+    clienteSelect.innerHTML = '<option value="">Cargando…</option>';
+
+    try {
+      const res = await fetch('/parse-drive');
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo leer el archivo de Drive.');
+
+      driveStatus.textContent = 'Clientes cargados desde Drive ✓ (' + data.clientes.length + ' embarques)';
+      poblarClientes(data.clientes);
+    } catch (err) {
+      driveStatus.textContent = 'No se pudo cargar desde Drive: ' + err.message;
+      btnReintentarDrive.style.display = 'inline-block';
+      clienteSelect.innerHTML = '<option value="">Usa "subir un archivo" mientras tanto…</option>';
+    }
+  }
+
+  btnReintentarDrive.addEventListener('click', cargarDesdeDrive);
+  cargarDesdeDrive(); // se dispara solo al abrir la página
+
+  // --- Opción alterna: subir un archivo a mano ---
+  toggleUpload.addEventListener('click', (e) => {
+    e.preventDefault();
+    const visible = uploadFallback.style.display !== 'none';
+    uploadFallback.style.display = visible ? 'none' : 'block';
+    toggleUpload.textContent = visible
+      ? '¿Prefieres subir un archivo distinto por esta vez?'
+      : 'Ocultar (seguir usando Drive)';
+  });
+
   archivoInput.addEventListener('change', async () => {
     const file = archivoInput.files[0];
     if (!file) return;
     archivoActual = file;
+    fuente = 'archivo';
 
     clienteSelect.disabled = true;
     clienteSelect.innerHTML = '<option value="">Leyendo archivo…</option>';
@@ -240,19 +300,10 @@
       const res = await fetch('/parse-source', { method: 'POST', body: formData });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'No se pudo leer el archivo.');
-
-      clienteSelect.innerHTML = '<option value="">— Elige un cliente —</option>';
-      data.clientes.forEach((c) => {
-        const opt = document.createElement('option');
-        opt.value = c.row;
-        opt.textContent = c.clientName + (c.tags ? ' (' + c.tags + ')' : '');
-        opt.dataset.tags = c.tags.toLowerCase();
-        clienteSelect.appendChild(opt);
-      });
-      clienteSelect.disabled = false;
+      poblarClientes(data.clientes);
     } catch (err) {
       setStatus(err.message, 'error');
-      clienteSelect.innerHTML = '<option value="">Sube un archivo primero…</option>';
+      clienteSelect.innerHTML = '<option value="">No se pudo leer el archivo…</option>';
     }
   });
 
@@ -266,22 +317,38 @@
   });
 
   btnGenerar.addEventListener('click', async () => {
-    if (!archivoActual || !clienteSelect.value) return;
+    if (!clienteSelect.value) return;
+    if (fuente === 'archivo' && !archivoActual) return;
 
     btnGenerar.disabled = true;
     btnGenerar.textContent = 'Generando…';
     setStatus('Generando el documento…');
 
-    const formData = new FormData();
-    formData.append('archivo', archivoActual);
-    formData.append('fila', clienteSelect.value);
     const stop1 = document.getElementById('stop1').value.trim();
     const stop2 = document.getElementById('stop2').value.trim();
-    if (stop1) formData.append('segundaDireccionPickup1', stop1);
-    if (stop2) formData.append('segundaDireccionPickup2', stop2);
 
     try {
-      const res = await fetch('/generate/bol-from-source?format=' + formato, { method: 'POST', body: formData });
+      let res;
+      if (fuente === 'drive') {
+        // Endpoint que lee directo de Drive, sin necesidad de reenviar un archivo.
+        res = await fetch('/generate/bol-from-drive?format=' + formato, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            fila: clienteSelect.value,
+            segundaDireccionPickup1: stop1 || undefined,
+            segundaDireccionPickup2: stop2 || undefined,
+          }),
+        });
+      } else {
+        const formData = new FormData();
+        formData.append('archivo', archivoActual);
+        formData.append('fila', clienteSelect.value);
+        if (stop1) formData.append('segundaDireccionPickup1', stop1);
+        if (stop2) formData.append('segundaDireccionPickup2', stop2);
+        res = await fetch('/generate/bol-from-source?format=' + formato, { method: 'POST', body: formData });
+      }
+
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || 'No se pudo generar el documento.');
