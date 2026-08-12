@@ -12,6 +12,7 @@ const multer = require('multer');
 const { execFile } = require('child_process');
 const { generateBOL } = require('./generators/generateBOL');
 const { readShipmentFromSource, listClientsFromSource } = require('./generators/readShipmentFromSource');
+const { checkUpcomingLoadsAndSend } = require('./generators/checkUpcomingLoads');
 
 const app = express();
 app.use(express.json());
@@ -103,6 +104,37 @@ app.post('/generate/bol', async (req, res) => {
   } catch (err) {
     console.error(err);
     return res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /cron/check-upcoming-loads?secret=...
+ * Pensado para ser llamado 1 vez al día por un disparador externo (GitHub Actions).
+ * Revisa el archivo maestro (Dropbox), genera y envía por correo el BOL de cualquier
+ * embarque que cargue en exactamente 7 días.
+ *
+ * Variables de entorno requeridas en Render:
+ *   CRON_SECRET          - clave para que nadie más pueda llamar este endpoint
+ *   DROPBOX_MASTER_URL   - link de descarga directa del archivo maestro (termina en dl=1)
+ *   GMAIL_USER           - cuenta de Gmail que envía los correos
+ *   GMAIL_APP_PASSWORD   - contraseña de aplicación de esa cuenta (no la contraseña normal)
+ */
+app.get('/cron/check-upcoming-loads', async (req, res) => {
+  if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: 'No autorizado.' });
+  }
+  try {
+    const resumen = await checkUpcomingLoadsAndSend({
+      dropboxUrl: process.env.DROPBOX_MASTER_URL,
+      gmailUser: process.env.GMAIL_USER,
+      gmailAppPassword: process.env.GMAIL_APP_PASSWORD,
+      convertToPDF,
+    });
+    console.log('[cron/check-upcoming-loads]', JSON.stringify(resumen));
+    res.json(resumen);
+  } catch (err) {
+    console.error('[cron/check-upcoming-loads] ERROR:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
