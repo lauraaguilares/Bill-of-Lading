@@ -161,4 +161,4 @@ async function checkUpcomingLoadsAndSend({ dropboxUrl, gmailUser, gmailAppPasswo
   return resumen;
 }
 
-module.exports = { checkUpcomingLoadsAndSend, embarquesProximosACargar, fechaDeCarga };
+module.exports = { checkUpcomingLoadsAndSend, embarquesProximosACargar, fechaDeCarga, descargarArchivoMaestro };
