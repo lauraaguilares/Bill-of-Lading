@@ -13,6 +13,9 @@ const { execFile } = require('child_process');
 const { generateBOL } = require('./generators/generateBOL');
 const { readShipmentFromSource, listClientsFromSource } = require('./generators/readShipmentFromSource');
 const { checkUpcomingLoadsAndSend, descargarArchivoMaestro } = require('./generators/checkUpcomingLoads');
+const { generateWeekly, generateWeeklyImage, listarFiltrosDisponibles } = require('./generators/generateWeekly');
+const { WEEKLY_TIPOS } = require('./config/weeklyConfig');
+const nodemailer = require('nodemailer');
 
 const app = express();
 app.use(express.json());
@@ -192,6 +195,118 @@ app.get('/cron/check-upcoming-loads', async (req, res) => {
   } catch (err) {
     console.error('[cron/check-upcoming-loads] ERROR:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /weekly/filtros?tipo=transportista
+ * Devuelve la lista de valores disponibles (ej. transportistas con embarques activos)
+ * para poblar el selector del formulario, leyendo el archivo maestro desde Drive.
+ */
+app.get('/weekly/filtros', async (req, res) => {
+  let filePath;
+  try {
+    const tipo = req.query.tipo;
+    if (!WEEKLY_TIPOS[tipo]) throw new Error(`Tipo de weekly desconocido: "${tipo}"`);
+    if (!process.env.DROPBOX_MASTER_URL) throw new Error('No hay un archivo maestro configurado en el servidor.');
+
+    filePath = await descargarArchivoMaestro(process.env.DROPBOX_MASTER_URL);
+    const filtros = await listarFiltrosDisponibles(tipo, filePath);
+    res.json({ filtros, formatoSalida: WEEKLY_TIPOS[tipo].formatoSalida });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message });
+  } finally {
+    if (filePath) fs.unlink(filePath, () => {});
+  }
+});
+
+/**
+ * POST /generate/weekly
+ * Body JSON: { tipo, filtroValor }
+ * Genera la weekly correspondiente (Excel para transportista/agenteAduanal, imagen para
+ * crew) leyendo el archivo maestro directo de Drive, y la devuelve para descargar.
+ */
+app.post('/generate/weekly', async (req, res) => {
+  let filePath;
+  try {
+    const { tipo, filtroValor } = req.body;
+    if (!WEEKLY_TIPOS[tipo]) throw new Error(`Tipo de weekly desconocido: "${tipo}"`);
+    if (!filtroValor) throw new Error('Falta el valor a filtrar (transportista/broker/crew).');
+    if (!process.env.DROPBOX_MASTER_URL) throw new Error('No hay un archivo maestro configurado en el servidor.');
+
+    filePath = await descargarArchivoMaestro(process.env.DROPBOX_MASTER_URL);
+
+    if (WEEKLY_TIPOS[tipo].formatoSalida === 'imagen') {
+      const { pngPath } = await generateWeeklyImage(tipo, filtroValor, filePath);
+      return res.download(pngPath);
+    }
+    const { outPath } = await generateWeekly(tipo, filtroValor, filePath);
+    return res.download(outPath);
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({ error: err.message });
+  } finally {
+    if (filePath) fs.unlink(filePath, () => {});
+  }
+});
+
+/**
+ * GET /cron/send-weeklies?secret=...
+ * Pensado para correr 1 vez cada lunes. Genera TODAS las weeklies (todos los
+ * transportistas, brokers y crews con embarques activos) y se las manda a Laura en un
+ * solo correo, para que ella las reenvíe a cada quien.
+ */
+app.get('/cron/send-weeklies', async (req, res) => {
+  if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET) {
+    return res.status(401).json({ error: 'No autorizado.' });
+  }
+  let filePath;
+  try {
+    if (!process.env.DROPBOX_MASTER_URL) throw new Error('No hay un archivo maestro configurado en el servidor.');
+    filePath = await descargarArchivoMaestro(process.env.DROPBOX_MASTER_URL);
+
+    const adjuntos = [];
+    const resumen = { generadas: [], errores: [] };
+
+    for (const tipo of Object.keys(WEEKLY_TIPOS)) {
+      const filtros = await listarFiltrosDisponibles(tipo, filePath);
+      for (const filtroValor of filtros) {
+        try {
+          if (WEEKLY_TIPOS[tipo].formatoSalida === 'imagen') {
+            const { pngPath } = await generateWeeklyImage(tipo, filtroValor, filePath);
+            adjuntos.push({ filename: path.basename(pngPath), path: pngPath });
+          } else {
+            const { outPath } = await generateWeekly(tipo, filtroValor, filePath);
+            adjuntos.push({ filename: path.basename(outPath), path: outPath });
+          }
+          resumen.generadas.push(`${tipo}: ${filtroValor}`);
+        } catch (err) {
+          resumen.errores.push(`${tipo}: ${filtroValor} -> ${err.message}`);
+        }
+      }
+    }
+
+    const transporter = nodemailer.createTransport({
+      service: 'gmail',
+      auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
+    });
+    await transporter.sendMail({
+      from: process.env.GMAIL_USER,
+      to: process.env.GMAIL_USER, // se manda a Laura misma, ella reenvía a cada quien
+      subject: `Weeklies del ${new Date().toLocaleDateString('en-US')} — listas para reenviar`,
+      text: `Se generaron ${resumen.generadas.length} weeklies:\n\n${resumen.generadas.join('\n')}` +
+        (resumen.errores.length ? `\n\nCon errores:\n${resumen.errores.join('\n')}` : ''),
+      attachments: adjuntos,
+    });
+
+    console.log('[cron/send-weeklies]', JSON.stringify(resumen));
+    res.json(resumen);
+  } catch (err) {
+    console.error('[cron/send-weeklies] ERROR:', err);
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (filePath) fs.unlink(filePath, () => {});
   }
 });
 
