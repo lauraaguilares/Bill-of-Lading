@@ -81,3 +81,42 @@ sin .gitignore, para que no choque con el que ya viene en el proyecto.)
 El servicio se "duerme" después de 15 minutos sin uso. La primera llamada después de estar
 dormido tarda ~30-50 segundos en responder (Render lo está "despertando"); las siguientes son
 rápidas. Para uso interno bajo demanda esto no debería ser un problema.
+
+**Importante para el cron de correo automático**: el "dormir" del plan Free significa que si
+GitHub Actions llama al endpoint del cron mientras el servicio está dormido, esa primera
+respuesta puede tardar hasta 50 segundos — el timeout de `curl` en el workflow debería
+soportarlo sin problema, pero si ves fallos intermitentes en el chequeo diario, esa es la
+causa más probable.
+
+## Automatización de correo (BOL 7 días antes de la carga)
+
+Todos los días a la hora configurada, un workflow de GitHub Actions llama a un endpoint del
+servidor que revisa el archivo maestro y envía por correo el BOL de cualquier embarque que
+cargue en exactamente 7 días, al PMA asignado.
+
+### Configurar las variables de entorno en Render
+
+En el dashboard de tu servicio → **Environment** → agrega estas 4 variables:
+
+| Variable | Qué va ahí |
+|---|---|
+| `CRON_SECRET` | Cualquier texto largo y aleatorio que tú inventes (ej. una contraseña). Protege el endpoint para que nadie más pueda llamarlo. |
+| `DROPBOX_MASTER_URL` | Link de descarga directa del archivo maestro en Dropbox — debe terminar en `dl=1` (cambia el `dl=0` que Dropbox pone por defecto). |
+| `GMAIL_USER` | La cuenta de Gmail desde la que se van a enviar los correos. |
+| `GMAIL_APP_PASSWORD` | Una "contraseña de aplicación" de esa cuenta de Gmail (NO la contraseña normal) — se genera en myaccount.google.com/apppasswords. |
+
+### Configurar el secreto en GitHub Actions
+
+En tu repo de GitHub → **Settings** → **Secrets and variables** → **Actions** → **New repository secret**:
+- Nombre: `CRON_SECRET`
+- Valor: el mismo texto que pusiste en Render.
+
+### Probarlo manualmente
+
+En GitHub → pestaña **Actions** → selecciona el workflow "Chequeo diario de embarques" →
+**Run workflow** — lo dispara al instante sin esperar al horario programado, útil para probar.
+
+También puedes llamarlo directo desde el navegador (reemplaza `TU_SECRETO`):
+```
+https://bill-of-lading.onrender.com/cron/check-upcoming-loads?secret=TU_SECRETO
+```
