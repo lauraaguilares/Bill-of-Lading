@@ -39,10 +39,10 @@ const SHIPPER_FIJO_BMM = {
 
 const CONTACT_POOL = {
   MOISES: { nombre: 'Moises', telefono: '+1 (520) 486-1110' },
-  Hannia: { nombre: 'Hannia', telefono: '+1 (956) 301-0924' },
-  Laura: { nombre: 'Laura', telefono: '+1 (929) 332-6992' },
-  Ana: { nombre: 'Ana', telefono: '+1 (805) 656-7826' },
-  Ariel: { nombre: 'Ariel', telefono: '+1 (915) 502-8546' },
+  Hannia: { nombre: 'Hannia', telefono: '+1 (956) 301-0924', correo: 'Hannia.Alcala@BestMexicoMovers.com' },
+  Laura: { nombre: 'Laura', telefono: '+1 (929) 332-6992', correo: 'Laura.Aguilar@BestMexicoMovers.com' },
+  Ana: { nombre: 'Ana', telefono: '+1 (805) 656-7826', correo: 'Ana.Bermudez@BestMexicoMovers.com' },
+  Ariel: { nombre: 'Ariel', telefono: '+1 (915) 502-8546', correo: 'Ariel.Hererra@BestMexicoMovers.com' },
 };
 
 const CONTACT_NAMES_VALID = ['Hannia', 'Laura', 'Ana', 'Ariel']; // pool de posibles PMA
