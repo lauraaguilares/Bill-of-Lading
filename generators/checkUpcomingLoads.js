@@ -32,9 +32,23 @@ async function descargarArchivoMaestro(url) {
       'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
     },
   });
-  if (!res.ok) throw new Error(`No se pudo descargar el archivo maestro (HTTP ${res.status}). Revisa que el link de Dropbox siga siendo válido y termine en dl=1.`);
+
+  if (res.status !== 200) {
+    throw new Error(`No se pudo descargar el archivo maestro (HTTP ${res.status}). Revisa que el link de Dropbox siga siendo válido y termine en dl=1.`);
+  }
 
   const buffer = Buffer.from(await res.arrayBuffer());
+
+  // Si Dropbox (o algo en el camino) manda el archivo incompleto, el tamaño real no
+  // coincide con el que el servidor anunció en el header — eso explica errores tipo
+  // "can't find end of central directory" (el .xlsx se cortó antes de terminar).
+  const contentLength = res.headers.get('content-length');
+  if (contentLength && Number(contentLength) !== buffer.length) {
+    throw new Error(
+      `El archivo se descargó incompleto: se esperaban ${contentLength} bytes y llegaron ${buffer.length}. ` +
+      `Intenta de nuevo; si persiste, puede ser un límite de tamaño o timeout en la descarga.`
+    );
+  }
 
   // Un .xlsx real es un .zip por dentro; siempre empieza con las letras "PK". Si no,
   // lo que se descargó fue una página HTML (el link no es de descarga directa) u otra cosa.
@@ -50,6 +64,7 @@ async function descargarArchivoMaestro(url) {
   if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
   const filePath = path.join(TEMP_DIR, `maestro-cron-${Date.now()}.xlsx`);
   fs.writeFileSync(filePath, buffer);
+  console.log(`[checkUpcomingLoads] Archivo maestro descargado: ${buffer.length} bytes`);
   return filePath;
 }
 
