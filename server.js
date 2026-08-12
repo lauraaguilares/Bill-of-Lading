@@ -128,7 +128,6 @@ app.get('/cron/check-upcoming-loads', async (req, res) => {
       dropboxUrl: process.env.DROPBOX_MASTER_URL,
       gmailUser: process.env.GMAIL_USER,
       gmailAppPassword: process.env.GMAIL_APP_PASSWORD,
-      convertToPDF,
     });
     console.log('[cron/check-upcoming-loads]', JSON.stringify(resumen));
     res.json(resumen);
