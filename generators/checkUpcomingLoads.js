@@ -10,6 +10,11 @@
  * (Es el mismo dato que ya se usa como fechaDocumento en generateBOL.js)
  */
 
+// Render (y algunos otros hosts) no soportan salida por IPv6, pero Node intenta IPv6
+// primero por default — eso causaba "ENETUNREACH" al conectar a Google Drive. Se fuerza
+// IPv4 primero para todas las conexiones salientes del proceso.
+require('dns').setDefaultResultOrder('ipv4first');
+
 const fs = require('fs');
 const path = require('path');
 const nodemailer = require('nodemailer');
