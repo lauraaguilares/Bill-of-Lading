@@ -117,7 +117,7 @@ async function embarquesProximosACargar(filePath, diasAntes = 7) {
 /**
  * Envía el BOL (adjunto) al correo del PMA asignado del embarque.
  */
-async function enviarBOLPorCorreo(shipment, pdfPath, transporter) {
+async function enviarBOLPorCorreo(shipment, archivoPath, transporter) {
   const pma = CONTACT_POOL[shipment.pma];
   if (!pma || !pma.correo) {
     throw new Error(`El PMA "${shipment.pma}" no tiene correo configurado.`);
@@ -128,7 +128,7 @@ async function enviarBOLPorCorreo(shipment, pdfPath, transporter) {
     to: pma.correo,
     subject: `BOL listo — ${shipment.clientName} (carga en 7 días)`,
     text: `Hola ${pma.nombre},\n\nAdjunto el Bill of Lading de ${shipment.clientName}, cuya carga es en 7 días.\n\nGenerado automáticamente por BMM Document Generator.`,
-    attachments: [{ filename: path.basename(pdfPath), path: pdfPath }],
+    attachments: [{ filename: path.basename(archivoPath), path: archivoPath }],
   });
 }
 
@@ -136,7 +136,7 @@ async function enviarBOLPorCorreo(shipment, pdfPath, transporter) {
  * Punto de entrada: descarga el archivo maestro, revisa embarques a 7 días, genera y envía.
  * Devuelve un resumen para logging/respuesta del endpoint.
  */
-async function checkUpcomingLoadsAndSend({ dropboxUrl, gmailUser, gmailAppPassword, convertToPDF }) {
+async function checkUpcomingLoadsAndSend({ dropboxUrl, gmailUser, gmailAppPassword }) {
   const filePath = await descargarArchivoMaestro(dropboxUrl);
   const transporter = nodemailer.createTransport({
     service: 'gmail',
@@ -148,9 +148,9 @@ async function checkUpcomingLoadsAndSend({ dropboxUrl, gmailUser, gmailAppPasswo
 
   for (const shipment of embarques) {
     try {
+      // Se envía el .xlsx (no el PDF) para que el equipo pueda editarlo si hace falta.
       const xlsxPath = await generateBOL(shipment);
-      const pdfPath = await convertToPDF(xlsxPath);
-      await enviarBOLPorCorreo(shipment, pdfPath, transporter);
+      await enviarBOLPorCorreo(shipment, xlsxPath, transporter);
       resumen.enviados.push({ cliente: shipment.clientName, pma: shipment.pma });
     } catch (err) {
       resumen.errores.push({ cliente: shipment.clientName, error: err.message });
