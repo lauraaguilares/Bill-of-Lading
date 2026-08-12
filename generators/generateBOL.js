@@ -16,6 +16,7 @@ const {
   buildContactBlock,
   resolveDirectionFromTags,
   calcularPeso,
+  calcularCubicFtYPeso,
   buildOrderNumbers,
 } = require('../config/bolConfig');
 
@@ -33,7 +34,9 @@ const OUTPUT_DIR = path.join(__dirname, '..', 'output');
  *   tags: string,               // valor crudo de la columna TAGS ('LIVE', 'Northbound', 'Bonded', etc.)
  *   direccionNOB: string[],   // NOB Address ("Address for truck"): Southbound (Shipper), Northbound (Consignee), Bonded (Shipper)
  *   direccionSOB: string[],   // SOB Address ("Address for truck"): solo Bonded (Consignee)
- *   cubicFt: number,
+ *   truckType: string,       // "53 ft" | "26 ft" | "28 ft (PUP)" - determina cubic ft y peso (ver calcularCubicFtYPeso)
+ *   pesoEspecificado: number | null, // override de peso, solo aplica con truck type 26 ft
+ *   cubicFt: number,          // respaldo si truckType no se reconoce
  *   nobDiaParaCamion / nobHoraParaCamion: string,        // "X NOB Day/Time for Truck to Arrive"
  *   customsDiaParaCamion / customsHoraParaCamion: string, // "X CUSTOMS Day/Time for Truck to Arrive"
  *   instruccionesEspeciales: string,  // fallback manual si no se usan los campos nob/customs de arriba
@@ -46,7 +49,7 @@ async function generateBOL(shipment) {
   const direction = resolveDirectionFromTags(shipment.tags);
   const { orderNumber, poNumber } = resolveOrderNumbers(shipment);
   const contacto = buildContactBlock(shipment.pma);
-  const peso = calcularPeso(shipment.cubicFt, shipment.carrier);
+  const { cubicFt, peso } = resolveCubicFtYPeso(shipment);
   const { fechaDocumento, instruccionesEspeciales } = resolveFechas(direction, shipment);
 
   const workbook = new ExcelJS.Workbook();
@@ -61,8 +64,8 @@ async function generateBOL(shipment) {
   ws.getCell('H9').value = fechaDocumento;
   ws.getCell('B10').value = orderNumber;
   ws.getCell('H10').value = poNumber;
-  ws.getCell('C24').value = shipment.cubicFt;
-  ws.getCell('J23').value = peso.esManual ? 'VER NOTA - MANUAL' : { formula: '=+C24*6.5' };
+  ws.getCell('C24').value = cubicFt;
+  ws.getCell('J23').value = peso;
 
   let instrucciones = insertarDiaSemana(instruccionesEspeciales);
 
@@ -184,7 +187,7 @@ function setWrappedAddress(ws, fromCell, toCell, direccionLineas) {
   cell.style = JSON.parse(JSON.stringify(cell.style || {}));
   cell.value = texto;
   cell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' };
-  cell.font = { ...cell.font, size: 9.5 };
+  cell.font = { ...cell.font, name: 'Calibri', size: 9.5 };
   const filaTop = Number(fromCell.match(/\d+/)[0]);
   const filaBottom = Number(toCell.match(/\d+/)[0]);
   ws.getRow(filaTop).height = Math.max(ws.getRow(filaTop).height || 0, 24);
@@ -204,7 +207,7 @@ function setTwoStopAddress(ws, primeraDireccion, segundaDireccion) {
   cell.style = JSON.parse(JSON.stringify(cell.style || {}));
   cell.value = texto;
   cell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' };
-  cell.font = { ...cell.font, size: 9.5 };
+  cell.font = { ...cell.font, name: 'Calibri', size: 9.5 };
   ws.getRow(14).height = 24;
   ws.getRow(15).height = 24;
 }
@@ -230,7 +233,7 @@ function setWrappedContactLine(ws, fromCell, toCell, texto) {
   cell.style = JSON.parse(JSON.stringify(cell.style || {}));
   cell.value = texto;
   cell.alignment = { wrapText: true, vertical: 'top', horizontal: 'left' };
-  cell.font = { ...cell.font, size: 9.5 };
+  cell.font = { ...cell.font, name: 'Calibri', size: 9.5 };
 
   const numPersonas = (texto.match(/\n/g) || []).length + 1;
   const filaTop = Number(fromCell.match(/\d+/)[0]);
@@ -299,7 +302,7 @@ function setInBondBanner(ws) {
   cell.style = JSON.parse(JSON.stringify(cell.style || {}));
   cell.value = '* IN BOND *';
   cell.alignment = { horizontal: 'center', vertical: 'middle' };
-  cell.font = { ...cell.font, size: 16, bold: true };
+  cell.font = { ...cell.font, name: 'Calibri', size: 16, bold: true };
   ws.getRow(18).height = 22;
 }
 
@@ -356,6 +359,31 @@ function resolveOrderNumbers(shipment) {
     return { orderNumber: shipment.numeroOrdenOrigen, poNumber };
   }
   return { orderNumber, poNumber };
+}
+
+/**
+ * Cubic ft y peso: se determinan por tipo de camión (regla confirmada), NO por
+ * "Size of the Shipment" ni la fórmula cubicFt x 6.5. Esas quedan solo como respaldo
+ * cuando el texto del tipo de camión no matchea ninguna especificación conocida
+ * (ej. viene vacío, o un formato no previsto).
+ */
+function resolveCubicFtYPeso(shipment) {
+  const resultado = calcularCubicFtYPeso(shipment.truckType, shipment.pesoEspecificado);
+
+  if (resultado.reconocido) {
+    return { cubicFt: resultado.cubicFt, peso: resultado.peso };
+  }
+
+  // Respaldo: tipo de camión no reconocido, se cae al método anterior si hay cubicFt.
+  if (shipment.cubicFt) {
+    const respaldo = calcularPeso(shipment.cubicFt, shipment.carrier);
+    return { cubicFt: shipment.cubicFt, peso: respaldo.esManual ? 'VER NOTA - MANUAL' : respaldo.valor };
+  }
+
+  throw new Error(
+    `No se pudo determinar cubic ft/peso: el tipo de camión "${shipment.truckType}" no se reconoce ` +
+    `y tampoco hay un "Size of the Shipment" que usar de respaldo.`
+  );
 }
 
 function addBrokerReferenceBlock(ws, broker) {
