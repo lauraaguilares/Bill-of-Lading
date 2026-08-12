@@ -162,6 +162,14 @@
 </header>
 
 <main>
+  <div class="card" style="padding-bottom:10px;">
+    <div class="format-toggle" style="margin-bottom:0;">
+      <button type="button" id="tabBol" class="active">Bill of Lading</button>
+      <button type="button" id="tabWeekly">Weekly</button>
+    </div>
+  </div>
+
+  <div id="bolSection">
   <div class="card">
     <div class="step-label"><span class="dot">1</span> Fuente de datos</div>
     <div id="driveStatus" class="hint">Cargando clientes desde Drive…</div>
@@ -201,11 +209,141 @@
     <button id="btnGenerar" disabled>Selecciona un cliente primero</button>
     <div id="status"></div>
   </div>
+  </div>
+
+  <div id="weeklySection" style="display:none;">
+    <div class="card">
+      <div class="step-label"><span class="dot">1</span> Tipo de Weekly</div>
+      <label for="weeklyTipo">¿Para quién es?</label>
+      <select id="weeklyTipo">
+        <option value="transportista">Transportista (NOB)</option>
+        <option value="agenteAduanal">Agente aduanal</option>
+        <option value="crew">Crew de descarga</option>
+      </select>
+    </div>
+
+    <div class="card">
+      <div class="step-label"><span class="dot">2</span> Selecciona a quién</div>
+      <select id="weeklyFiltro" disabled>
+        <option value="">Cargando…</option>
+      </select>
+      <p class="hint" id="weeklyFormatoHint"></p>
+    </div>
+
+    <div class="card">
+      <div class="step-label"><span class="dot">3</span> Generar</div>
+      <button id="btnGenerarWeekly" disabled>Selecciona una opción primero</button>
+      <div id="weeklyStatus"></div>
+    </div>
+  </div>
 </main>
 
 <footer>BMM Document Generator</footer>
 
 <script>
+  const tabBol = document.getElementById('tabBol');
+  const tabWeekly = document.getElementById('tabWeekly');
+  const bolSection = document.getElementById('bolSection');
+  const weeklySection = document.getElementById('weeklySection');
+
+  tabBol.addEventListener('click', () => {
+    tabBol.classList.add('active');
+    tabWeekly.classList.remove('active');
+    bolSection.style.display = '';
+    weeklySection.style.display = 'none';
+  });
+  tabWeekly.addEventListener('click', () => {
+    tabWeekly.classList.add('active');
+    tabBol.classList.remove('active');
+    bolSection.style.display = 'none';
+    weeklySection.style.display = '';
+    cargarFiltrosWeekly();
+  });
+
+  const weeklyTipoSelect = document.getElementById('weeklyTipo');
+  const weeklyFiltroSelect = document.getElementById('weeklyFiltro');
+  const weeklyFormatoHint = document.getElementById('weeklyFormatoHint');
+  const btnGenerarWeekly = document.getElementById('btnGenerarWeekly');
+  const weeklyStatusEl = document.getElementById('weeklyStatus');
+  let weeklyFormatoActual = 'excel';
+
+  weeklyTipoSelect.addEventListener('change', cargarFiltrosWeekly);
+
+  async function cargarFiltrosWeekly() {
+    weeklyFiltroSelect.disabled = true;
+    weeklyFiltroSelect.innerHTML = '<option value="">Cargando…</option>';
+    btnGenerarWeekly.disabled = true;
+    btnGenerarWeekly.textContent = 'Selecciona una opción primero';
+    weeklyStatusEl.textContent = '';
+
+    try {
+      const res = await fetch('/weekly/filtros?tipo=' + weeklyTipoSelect.value);
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo leer el archivo de Drive.');
+
+      weeklyFormatoActual = data.formatoSalida;
+      weeklyFormatoHint.textContent = data.formatoSalida === 'imagen'
+        ? 'Esta weekly se genera como imagen (screenshot), lista para mandar por WhatsApp.'
+        : 'Esta weekly se genera como archivo Excel.';
+
+      weeklyFiltroSelect.innerHTML = '<option value="">— Elige —</option>';
+      data.filtros.forEach((f) => {
+        const opt = document.createElement('option');
+        opt.value = f;
+        opt.textContent = f;
+        weeklyFiltroSelect.appendChild(opt);
+      });
+      weeklyFiltroSelect.disabled = false;
+    } catch (err) {
+      weeklyStatusEl.textContent = err.message;
+      weeklyStatusEl.className = 'error';
+      weeklyFiltroSelect.innerHTML = '<option value="">Error al cargar…</option>';
+    }
+  }
+
+  weeklyFiltroSelect.addEventListener('change', () => {
+    btnGenerarWeekly.disabled = !weeklyFiltroSelect.value;
+    btnGenerarWeekly.textContent = weeklyFiltroSelect.value ? 'Generar Weekly' : 'Selecciona una opción primero';
+  });
+
+  btnGenerarWeekly.addEventListener('click', async () => {
+    if (!weeklyFiltroSelect.value) return;
+    btnGenerarWeekly.disabled = true;
+    btnGenerarWeekly.textContent = 'Generando…';
+    weeklyStatusEl.textContent = 'Generando la weekly…';
+    weeklyStatusEl.className = '';
+
+    try {
+      const res = await fetch('/generate/weekly', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tipo: weeklyTipoSelect.value, filtroValor: weeklyFiltroSelect.value }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'No se pudo generar la weekly.');
+      }
+      const blob = await res.blob();
+      const ext = weeklyFormatoActual === 'imagen' ? 'png' : 'xlsx';
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Weekly_' + weeklyTipoSelect.value + '_' + weeklyFiltroSelect.value.replace(/[^a-z0-9]+/gi, '_') + '.' + ext;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      weeklyStatusEl.textContent = 'Listo, se descargó la weekly.';
+      weeklyStatusEl.className = 'ok';
+    } catch (err) {
+      weeklyStatusEl.textContent = err.message;
+      weeklyStatusEl.className = 'error';
+    } finally {
+      btnGenerarWeekly.disabled = false;
+      btnGenerarWeekly.textContent = 'Generar Weekly';
+    }
+  });
+
   const driveStatus = document.getElementById('driveStatus');
   const btnReintentarDrive = document.getElementById('btnReintentarDrive');
   const toggleUpload = document.getElementById('toggleUpload');
