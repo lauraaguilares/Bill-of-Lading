@@ -12,7 +12,7 @@ const multer = require('multer');
 const { execFile } = require('child_process');
 const { generateBOL } = require('./generators/generateBOL');
 const { readShipmentFromSource, listClientsFromSource } = require('./generators/readShipmentFromSource');
-const { checkUpcomingLoadsAndSend } = require('./generators/checkUpcomingLoads');
+const { checkUpcomingLoadsAndSend, descargarArchivoMaestro } = require('./generators/checkUpcomingLoads');
 
 const app = express();
 app.use(express.json());
@@ -33,6 +33,64 @@ app.get('/', (req, res) => res.sendFile(path.join(__dirname, 'public', 'index.ht
  * POST /parse-source  (multipart, campo "archivo")
  * Sube el archivo maestro (BMM Weeklies) y devuelve la lista de clientes de "PASTE HERE"
  * para poblar el selector del formulario.
+ */
+/**
+ * GET /parse-drive
+ * Lee el archivo maestro directo desde Google Drive (la misma URL que usa el cron
+ * diario) y devuelve la lista de clientes — sin que nadie tenga que subir nada a mano.
+ */
+app.get('/parse-drive', async (req, res) => {
+  try {
+    if (!process.env.DROPBOX_MASTER_URL) throw new Error('No hay un archivo maestro configurado en el servidor.');
+    const filePath = await descargarArchivoMaestro(process.env.DROPBOX_MASTER_URL);
+    const clientes = await listClientsFromSource(filePath);
+    fs.unlink(filePath, () => {});
+    res.json({ clientes });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /generate/bol-from-drive
+ * Body JSON: { fila, segundaDireccionPickup1?, segundaDireccionPickup2? }
+ * Igual que /generate/bol-from-source pero lee el archivo maestro directo de Drive.
+ */
+app.post('/generate/bol-from-drive', async (req, res) => {
+  let filePath;
+  try {
+    if (!process.env.DROPBOX_MASTER_URL) throw new Error('No hay un archivo maestro configurado en el servidor.');
+    const fila = Number(req.body.fila);
+    if (!fila) throw new Error('Falta el número de fila del cliente seleccionado.');
+
+    const options = { fecha: new Date() };
+    if (req.body.segundaDireccionPickup1 || req.body.segundaDireccionPickup2) {
+      options.segundaDireccionPickup = [
+        req.body.segundaDireccionPickup1 || '',
+        req.body.segundaDireccionPickup2 || '',
+      ];
+    }
+
+    filePath = await descargarArchivoMaestro(process.env.DROPBOX_MASTER_URL);
+    const shipment = await readShipmentFromSource(filePath, fila, options);
+    const xlsxPath = await generateBOL(shipment);
+
+    if (req.query.format === 'pdf') {
+      const pdfPath = await convertToPDF(xlsxPath);
+      return res.download(pdfPath);
+    }
+    return res.download(xlsxPath);
+  } catch (err) {
+    console.error(err);
+    return res.status(400).json({ error: err.message });
+  } finally {
+    if (filePath) fs.unlink(filePath, () => {});
+  }
+});
+
+/**
+ * POST /parse-source (subir archivo a mano — se conserva como opción alterna)
  */
 app.post('/parse-source', upload.single('archivo'), async (req, res) => {
   try {
