@@ -29,14 +29,27 @@ const TEMP_DIR = path.join(__dirname, '..', 'uploads');
  * Descarga el archivo maestro desde la URL de Dropbox configurada (debe terminar en
  * "&dl=1" o "?dl=1" para forzar descarga directa en vez de abrir la vista previa).
  */
-async function descargarArchivoMaestro(url) {
-  const res = await fetch(url, {
-    redirect: 'follow',
-    headers: {
-      // Sin esto, Dropbox a veces devuelve una página HTML en vez del archivo real.
-      'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
-    },
-  });
+async function descargarArchivoMaestro(url, intento = 1) {
+  let res;
+  try {
+    res = await fetch(url, {
+      redirect: 'follow',
+      // Timeout generoso: a veces Render tarda en conectar a Google y el default es corto.
+      signal: AbortSignal.timeout(45000),
+      headers: {
+        // Sin esto, Dropbox a veces devuelve una página HTML en vez del archivo real.
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0 Safari/537.36',
+      },
+    });
+  } catch (err) {
+    // Reintento único: la falla suele ser una intermitencia de red de Render, no algo real.
+    if (intento < 2) {
+      console.log(`[descargarArchivoMaestro] Falló el intento ${intento} (${err.message}), reintentando...`);
+      await new Promise((r) => setTimeout(r, 2000));
+      return descargarArchivoMaestro(url, intento + 1);
+    }
+    throw new Error(`No se pudo conectar para descargar el archivo maestro después de 2 intentos: ${err.message}`);
+  }
 
   if (res.status !== 200) {
     throw new Error(`No se pudo descargar el archivo maestro (HTTP ${res.status}). Revisa que el link de Dropbox siga siendo válido y termine en dl=1.`);
