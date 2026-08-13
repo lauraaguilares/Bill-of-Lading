@@ -113,8 +113,6 @@ const WEEKLY_TIPOS = {
       { col: 'SOB (Un)Loading Plan', label: 'Plan para cargar / descargar', operativa: true },
       { col: 'SOB Shuttle', label: 'Acarreo', operativa: true },
       { col: 'SOB Notes for Crew', label: 'Notas', esNota: true },
-      { col: 'SOB Contact for Driver', label: 'Contacto para el chofer', operativa: true },
-      { col: 'SOB Crew', label: 'Crew', identidad: true, operativa: true },
     ],
   },
 };
