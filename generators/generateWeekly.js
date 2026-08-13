@@ -272,8 +272,12 @@ async function generateWeeklyImage(tipo, filtroValor, sourceFilePath, fechaWeekl
 
   await ejecutar('soffice', ['--headless', '--convert-to', 'pdf', '--outdir', OUTPUT_DIR, outPath]);
   const pdfPath = outPath.replace(/\.xlsx$/, '.pdf');
-  await ejecutar('soffice', ['--headless', '--convert-to', 'png', '--outdir', OUTPUT_DIR, pdfPath]);
-  const pngPath = pdfPath.replace(/\.pdf$/, '.png');
+
+  // pdftoppm en vez de la conversión PNG por defecto de LibreOffice: permite fijar la
+  // resolución (200 DPI, el doble de lo normal) para que no se vea pixeleada al hacer zoom.
+  const pngBase = pdfPath.replace(/\.pdf$/, '');
+  await ejecutar('pdftoppm', ['-png', '-r', '200', '-singlefile', pdfPath, pngBase]);
+  const pngPath = `${pngBase}.png`;
 
   return { pngPath, xlsxPath: outPath, totalFilas };
 }
