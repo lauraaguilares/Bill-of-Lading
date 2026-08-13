@@ -1,12 +1,14 @@
 # Imagen base ligera de Node
 FROM node:20-slim
 
-# LibreOffice headless para la conversión xlsx -> pdf
+# LibreOffice headless para la conversión xlsx -> pdf. poppler-utils da "pdftoppm", que se
+# usa para exportar las weeklies como imagen en alta resolución (200 DPI) — la conversión
+# PNG por defecto de LibreOffice se ve pixeleada al hacer zoom.
 # fonts-crosextra-carlito: sustituto de Calibri con las MISMAS métricas (ancho de letras),
 # imprescindible porque la plantilla del BOL usa Calibri y sin esto LibreOffice cae a una
 # fuente genérica que desalinea y corta texto (Calibri en sí no se puede redistribuir).
 RUN apt-get update && \
-    apt-get install -y --no-install-recommends libreoffice fonts-liberation fonts-crosextra-carlito && \
+    apt-get install -y --no-install-recommends libreoffice fonts-liberation fonts-crosextra-carlito poppler-utils && \
     rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app
