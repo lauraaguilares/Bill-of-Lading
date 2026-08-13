@@ -19,4 +19,4 @@ COPY . .
 # Render inyecta la variable PORT automáticamente
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+CMD ["node", "--dns-result-order=ipv4first", "server.js"]
