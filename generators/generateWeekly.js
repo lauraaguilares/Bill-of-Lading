@@ -147,6 +147,24 @@ async function generateWeekly(tipo, filtroValor, sourceFilePath, fechaWeeklies =
     }
   }
 
+  // Alto de fila explícito: Excel calcula esto solo al abrir el archivo, pero al exportar
+  // a PDF/imagen (LibreOffice, para la weekly de crew) NO lo recalcula — si no se fija a
+  // mano, el texto envuelto se ve encimado con la fila de abajo. Se estima cuántas líneas
+  // necesita la celda con más contenido de cada fila, según el ancho ya asignado a su columna.
+  const ALTO_POR_LINEA = 14; // pt, aprox para fuente 10-11
+  for (let r = 2; r <= 2 + filasFiltradas.length; r += 1) {
+    let maxLineas = 1;
+    for (let c = 1; c <= config.columnas.length; c += 1) {
+      const texto = String(ws.getCell(r, c).value || '');
+      const anchoColumna = ws.getColumn(c).width || 12;
+      const charsPorLinea = Math.max(anchoColumna * 1.1, 5); // estimado conservador de chars visibles por línea
+      const lineasPorSaltos = texto.split('\n').length;
+      const lineasPorAncho = Math.ceil(texto.length / charsPorLinea);
+      maxLineas = Math.max(maxLineas, lineasPorSaltos, lineasPorAncho);
+    }
+    ws.getRow(r).height = maxLineas * ALTO_POR_LINEA + 10;
+  }
+
   // Formato de tabla: bordes en todas las celdas con datos, filtros en el encabezado y
   // la fila de encabezado congelada — para que se lea como tabla real y no como texto
   // suelto, sin perder los colores de las reglas de negocio ya aplicados arriba.
