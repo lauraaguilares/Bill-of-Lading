@@ -47,10 +47,10 @@ const OUTPUT_DIR = path.join(__dirname, '..', 'output');
  */
 async function generateBOL(shipment) {
   const direction = resolveDirectionFromTags(shipment.tags);
-  const { orderNumber, poNumber } = resolveOrderNumbers(shipment);
   const contacto = buildContactBlock(shipment.pma);
   const { cubicFt, peso } = resolveCubicFtYPeso(shipment);
-  const { fechaDocumento, instruccionesEspeciales } = resolveFechas(direction, shipment);
+  const { fechaDocumento, fechaDocumentoObj, instruccionesEspeciales } = resolveFechas(direction, shipment);
+  const { orderNumber, poNumber } = resolveOrderNumbers(shipment, fechaDocumentoObj);
 
   const workbook = new ExcelJS.Workbook();
   await workbook.xlsx.readFile(TEMPLATE_PATH);
@@ -103,7 +103,11 @@ async function generateBOL(shipment) {
   setSpecialInstructions(ws, instrucciones);
 
   // --- Guardar ---
-  const outName = `BOL_${shipment.clientLastName}_${orderNumber}.xlsx`;
+  // Formato confirmado: "LIVE - Cliente - FechaDeCarga.xlsx" (LIVE/NORTHBOUND/BONDED según
+  // el TAGS real del embarque, no siempre literal "LIVE").
+  const estado = resolveEstadoArchivo(shipment.tags);
+  const fechaParaNombre = fechaDocumentoObj.toLocaleDateString('en-US').replace(/\//g, '-');
+  const outName = `${estado} - ${shipment.clientName} - ${fechaParaNombre}.xlsx`;
   const outPath = path.join(OUTPUT_DIR, outName);
   await workbook.xlsx.writeFile(outPath);
   return outPath;
@@ -325,6 +329,7 @@ function resolveFechas(direction, shipment) {
   if (!tieneDatosDeArchivo) {
     return {
       fechaDocumento: shipment.fecha.toLocaleDateString('en-US'),
+      fechaDocumentoObj: shipment.fecha,
       instruccionesEspeciales: shipment.instruccionesEspeciales || '',
     };
   }
@@ -340,17 +345,44 @@ function resolveFechas(direction, shipment) {
     ? `DELIVERY APPOINTMENT ON ${paraInstrucciones.dia} @ ${paraInstrucciones.hora}`
     : '';
 
-  return { fechaDocumento, instruccionesEspeciales };
+  // Fecha de carga como objeto Date (para Order#/PO# y el nombre del archivo) — se parsea
+  // del mismo texto MM/DD/YYYY que se muestra en "Date:". Si no se pudo obtener, se cae a
+  // la fecha de generación para no tronar.
+  const fechaDocumentoObj = parsearFechaMMDDYYYY(fechaDocumento) || shipment.fecha;
+
+  return { fechaDocumento, fechaDocumentoObj, instruccionesEspeciales };
 }
 
 /**
- * Order # normalmente sigue el formato BMM-{INICIALES}{FECHA}-01. Excepción confirmada:
- * si el carrier es ESTES u Old Dominion, el Order # debe ser el mismo número que ya trae
- * el documento de origen (columna "Order Number" de PASTE HERE), no el generado. El PO #
- * mantiene siempre el formato normal.
+ * "MM/DD/YYYY" -> Date. Devuelve null si no es parseable.
  */
-function resolveOrderNumbers(shipment) {
-  const { orderNumber, poNumber } = buildOrderNumbers(shipment.clientLastName, shipment.fecha);
+function parsearFechaMMDDYYYY(texto) {
+  const match = String(texto || '').match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (!match) return null;
+  const [, mm, dd, yyyy] = match;
+  return new Date(Number(yyyy), Number(mm) - 1, Number(dd));
+}
+
+/**
+ * Estado del embarque para el nombre del archivo — el mismo criterio que ya se usa para
+ * saber el escenario (TAGS contiene 'Northbound'/'Bonded'), pero como texto para mostrar.
+ */
+function resolveEstadoArchivo(tags) {
+  const t = (tags || '').toLowerCase();
+  if (t.includes('northbound')) return 'NORTHBOUND';
+  if (t.includes('bonded')) return 'BONDED';
+  return 'LIVE';
+}
+
+/**
+ * Order # normalmente sigue el formato BMM-{INICIALES}{FECHA}-01, usando la FECHA DE CARGA
+ * del camión (no la fecha en que se generó el documento). Excepción confirmada: si el
+ * carrier es ESTES u Old Dominion, el Order # debe ser el mismo número que ya trae el
+ * documento de origen (columna "Order Number" de PASTE HERE), no el generado. El PO #
+ * mantiene siempre el formato normal (con la fecha de carga también).
+ */
+function resolveOrderNumbers(shipment, fechaCarga) {
+  const { orderNumber, poNumber } = buildOrderNumbers(shipment.clientLastName, fechaCarga);
 
   const carrier = (shipment.carrier || '').toUpperCase();
   const esEstesOOldDominion = carrier.includes('ESTES') || carrier.includes('OLD DOMINION');
