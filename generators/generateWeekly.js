@@ -77,7 +77,11 @@ async function generateWeekly(tipo, filtroValor, sourceFilePath, fechaWeeklies =
   if (!config) throw new Error(`Tipo de weekly desconocido: "${tipo}"`);
 
   const filas = await leerPasteHere(sourceFilePath);
-  const filasFiltradas = filas.filter((f) => normalizar(f[config.filtroColumna]) === normalizar(filtroValor));
+  const filasFiltradas = filas
+    .filter((f) => normalizar(f[config.filtroColumna]) === normalizar(filtroValor))
+    // "On Hold" se excluye de todas las weeklies (confirmado) — no aplica a esas cargas
+    // hasta que se reactiven.
+    .filter((f) => !normalizar(f['TAGS']).includes('on hold'));
 
   // Orden por la fecha principal de esa weekly (NOB Day para transportistas, Arrival day
   // para brokers, etc.) — no alfabético por cliente. Filas sin fecha válida van al final.
@@ -198,7 +202,9 @@ async function generateWeekly(tipo, filtroValor, sourceFilePath, fechaWeeklies =
   };
 
   if (!require('fs').existsSync(OUTPUT_DIR)) require('fs').mkdirSync(OUTPUT_DIR, { recursive: true });
-  const nombreArchivo = `Weekly_${tipo}_${filtroValor.replace(/[^a-z0-9]+/gi, '_')}.xlsx`;
+  // Formato confirmado: "Weeklies - [para quien son] - [fecha de generación].xlsx"
+  const fechaGeneracion = fechaWeeklies.toLocaleDateString('en-US').replace(/\//g, '-');
+  const nombreArchivo = `Weeklies - ${filtroValor} - ${fechaGeneracion}.xlsx`;
   const outPath = path.join(OUTPUT_DIR, nombreArchivo);
   await workbook.xlsx.writeFile(outPath);
   return { outPath, totalFilas: filasFiltradas.length };
@@ -302,6 +308,7 @@ async function listarFiltrosDisponibles(tipo, sourceFilePath) {
   const filas = await leerPasteHere(sourceFilePath);
   const valores = new Map(); // normalizado -> texto original (primera aparición)
   filas.forEach((f) => {
+    if (normalizar(f['TAGS']).includes('on hold')) return; // no cuenta para la lista de opciones
     const crudo = f[config.filtroColumna];
     if (!crudo) return;
     const limpio = String(crudo).trim();
