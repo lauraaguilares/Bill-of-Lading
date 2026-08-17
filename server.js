@@ -5,6 +5,21 @@
  * Hoy solo tiene BOL; el checklist y futuros documentos se agregan igual.
  */
 
+// Render no soporta salida por IPv6. El flag --dns-result-order=ipv4first del Dockerfile
+// arregla esto para fetch() (Google Drive), pero nodemailer/SMTP usa su propia conexión de
+// bajo nivel que NO respeta ese flag — seguía intentando IPv6 para conectar a Gmail y
+// tronaba con ENETUNREACH. Se intercepta dns.lookup directamente (a nivel de todo el
+// proceso) para forzar IPv4 siempre, sin importar qué librería lo llame.
+const dns = require('dns');
+const dnsLookupOriginal = dns.lookup;
+dns.lookup = (hostname, options, callback) => {
+  if (typeof options === 'function') {
+    callback = options;
+    options = {};
+  }
+  return dnsLookupOriginal(hostname, { ...options, family: 4 }, callback);
+};
+
 const express = require('express');
 const path = require('path');
 const fs = require('fs');
@@ -261,6 +276,17 @@ app.get('/cron/send-weeklies', async (req, res) => {
   if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET) {
     return res.status(401).json({ error: 'No autorizado.' });
   }
+
+  // Responde de inmediato: generar todas las weeklies (varios transportistas + brokers +
+  // ~10 crews en imagen) tarda varios minutos, y Render corta la conexión HTTP antes de que
+  // termine si se espera aquí. El trabajo real sigue en segundo plano después de responder.
+  res.json({ iniciado: true, mensaje: 'Generación en curso, llegará un correo cuando termine.' });
+  generarYEnviarTodasLasWeeklies().catch((err) => {
+    console.error('[cron/send-weeklies] ERROR de fondo:', err);
+  });
+});
+
+async function generarYEnviarTodasLasWeeklies() {
   let filePath;
   try {
     if (!process.env.DROPBOX_MASTER_URL) throw new Error('No hay un archivo maestro configurado en el servidor.');
@@ -301,14 +327,13 @@ app.get('/cron/send-weeklies', async (req, res) => {
     });
 
     console.log('[cron/send-weeklies]', JSON.stringify(resumen));
-    res.json(resumen);
   } catch (err) {
     console.error('[cron/send-weeklies] ERROR:', err);
-    res.status(500).json({ error: err.message });
+    throw err;
   } finally {
     if (filePath) fs.unlink(filePath, () => {});
   }
-});
+}
 
 function normalizeShipmentPayload(body) {
   // El body llega como JSON desde el formulario; 'fecha' viaja como string ISO.
