@@ -17,7 +17,7 @@ require('dns').setDefaultResultOrder('ipv4first');
 
 const fs = require('fs');
 const path = require('path');
-const { crearTransportadorGmail } = require('./mailTransport');
+const { enviarCorreo } = require('./mailTransport');
 const ExcelJS = require('exceljs');
 const { generateBOL } = require('./generateBOL');
 const { readShipmentFromSource, listClientsFromSource } = require('./readShipmentFromSource');
@@ -133,19 +133,24 @@ async function embarquesProximosACargar(filePath, diasAntes = 7) {
 }
 
 /**
- * Envía el BOL (adjunto) al correo del PMA asignado del embarque.
+ * Envía el BOL (adjunto). NOTA: Resend sin dominio propio verificado solo permite mandar
+ * a la MISMA dirección con la que te registraste — por eso esto va a Laura (gmailUser),
+ * no directo al PMA, con el nombre del PMA en el asunto para que ella sepa a quién
+ * reenviarlo. Si se verifica el dominio de la empresa en Resend, se puede volver a mandar
+ * directo a cada PMA (pma.correo).
  */
-async function enviarBOLPorCorreo(shipment, archivoPath, transporter) {
+async function enviarBOLPorCorreo(shipment, archivoPath, gmailUser) {
   const pma = CONTACT_POOL[shipment.pma];
-  if (!pma || !pma.correo) {
-    throw new Error(`El PMA "${shipment.pma}" no tiene correo configurado.`);
+  if (!pma) {
+    throw new Error(`El PMA "${shipment.pma}" no se reconoce.`);
   }
 
-  await transporter.sendMail({
-    from: process.env.GMAIL_USER,
-    to: pma.correo,
-    subject: `BOL listo — ${shipment.clientName} (carga en 7 días)`,
-    text: `Hola ${pma.nombre},\n\nAdjunto el Bill of Lading de ${shipment.clientName}, cuya carga es en 7 días.\n\nGenerado automáticamente por BMM Document Generator.`,
+  await enviarCorreo({
+    apiKey: process.env.RESEND_API_KEY,
+    from: 'onboarding@resend.dev',
+    to: gmailUser,
+    subject: `BOL listo para ${pma.nombre} — ${shipment.clientName} (carga en 7 días)`,
+    text: `BOL de ${shipment.clientName}, cuya carga es en 7 días.\nPMA asignado: ${pma.nombre} — reenviar a: ${pma.correo || '(sin correo configurado)'}\n\nGenerado automáticamente por BMM Document Generator.`,
     attachments: [{ filename: path.basename(archivoPath), path: archivoPath }],
   });
 }
@@ -154,9 +159,8 @@ async function enviarBOLPorCorreo(shipment, archivoPath, transporter) {
  * Punto de entrada: descarga el archivo maestro, revisa embarques a 7 días, genera y envía.
  * Devuelve un resumen para logging/respuesta del endpoint.
  */
-async function checkUpcomingLoadsAndSend({ dropboxUrl, gmailUser, gmailAppPassword }) {
+async function checkUpcomingLoadsAndSend({ dropboxUrl, gmailUser }) {
   const filePath = await descargarArchivoMaestro(dropboxUrl);
-  const transporter = await crearTransportadorGmail(gmailUser, gmailAppPassword);
 
   const embarques = await embarquesProximosACargar(filePath, 7);
   const resumen = { revisados: true, encontrados: embarques.length, enviados: [], errores: [] };
@@ -165,7 +169,7 @@ async function checkUpcomingLoadsAndSend({ dropboxUrl, gmailUser, gmailAppPasswo
     try {
       // Se envía el .xlsx (no el PDF) para que el equipo pueda editarlo si hace falta.
       const xlsxPath = await generateBOL(shipment);
-      await enviarBOLPorCorreo(shipment, xlsxPath, transporter);
+      await enviarBOLPorCorreo(shipment, xlsxPath, gmailUser);
       resumen.enviados.push({ cliente: shipment.clientName, pma: shipment.pma });
     } catch (err) {
       resumen.errores.push({ cliente: shipment.clientName, error: err.message });
