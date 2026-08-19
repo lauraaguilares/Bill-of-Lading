@@ -17,14 +17,16 @@ async function crearTransportadorGmail(gmailUser, gmailAppPassword) {
 
   return nodemailer.createTransport({
     host: address,
-    port: 465,
-    secure: true,
+    port: 587, // STARTTLS — más compatible que 465 (SSL directo) en redes de hosting con restricciones
+    secure: false,
+    requireTLS: true,
     auth: { user: gmailUser, pass: gmailAppPassword },
     tls: {
       // Necesario al conectar por IP directa: el certificado de Gmail es para el
       // hostname, no para la IP, así que hay que decirle explícitamente cuál validar.
       servername: GMAIL_HOST,
     },
+    connectionTimeout: 20000, // 20s — para que falle claro en vez de colgarse mucho tiempo
   });
 }
 
