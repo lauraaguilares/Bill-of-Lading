@@ -226,7 +226,11 @@ app.get('/weekly/filtros', async (req, res) => {
 
     filePath = await descargarArchivoMaestro(process.env.DROPBOX_MASTER_URL);
     const filtros = await listarFiltrosDisponibles(tipo, filePath);
-    res.json({ filtros, formatoSalida: WEEKLY_TIPOS[tipo].formatoSalida });
+    res.json({
+      filtros,
+      formatoSalida: WEEKLY_TIPOS[tipo].formatoSalida,
+      sinFiltro: !!WEEKLY_TIPOS[tipo].sinFiltro,
+    });
   } catch (err) {
     console.error(err);
     res.status(400).json({ error: err.message });
