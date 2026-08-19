@@ -30,7 +30,7 @@ const { readShipmentFromSource, listClientsFromSource } = require('./generators/
 const { checkUpcomingLoadsAndSend, descargarArchivoMaestro } = require('./generators/checkUpcomingLoads');
 const { generateWeekly, generateWeeklyImage, listarFiltrosDisponibles } = require('./generators/generateWeekly');
 const { WEEKLY_TIPOS } = require('./config/weeklyConfig');
-const { crearTransportadorGmail } = require('./generators/mailTransport');
+const { enviarCorreo } = require('./generators/mailTransport');
 
 const app = express();
 app.use(express.json());
@@ -203,7 +203,6 @@ app.get('/cron/check-upcoming-loads', async (req, res) => {
     const resumen = await checkUpcomingLoadsAndSend({
       dropboxUrl: process.env.DROPBOX_MASTER_URL,
       gmailUser: process.env.GMAIL_USER,
-      gmailAppPassword: process.env.GMAIL_APP_PASSWORD,
     });
     console.log('[cron/check-upcoming-loads]', JSON.stringify(resumen));
     res.json(resumen);
@@ -319,9 +318,9 @@ async function generarYEnviarTodasLasWeeklies() {
     }
 
     console.log('[cron/send-weeklies] Generación terminada, armando correo con', adjuntos.length, 'adjuntos...');
-    const transporter = await crearTransportadorGmail(process.env.GMAIL_USER, process.env.GMAIL_APP_PASSWORD);
-    await transporter.sendMail({
-      from: process.env.GMAIL_USER,
+    await enviarCorreo({
+      apiKey: process.env.RESEND_API_KEY,
+      from: 'onboarding@resend.dev',
       to: process.env.GMAIL_USER, // se manda a Laura misma, ella reenvía a cada quien
       subject: `Weeklies del ${new Date().toLocaleDateString('en-US')} — listas para reenviar`,
       text: `Se generaron ${resumen.generadas.length} weeklies:\n\n${resumen.generadas.join('\n')}` +
