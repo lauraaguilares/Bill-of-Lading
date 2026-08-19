@@ -77,11 +77,15 @@ async function generateWeekly(tipo, filtroValor, sourceFilePath, fechaWeeklies =
   if (!config) throw new Error(`Tipo de weekly desconocido: "${tipo}"`);
 
   const filas = await leerPasteHere(sourceFilePath);
-  const filasFiltradas = filas
-    .filter((f) => normalizar(f[config.filtroColumna]) === normalizar(filtroValor))
-    // "On Hold" se excluye de todas las weeklies (confirmado) — no aplica a esas cargas
-    // hasta que se reactiven.
-    .filter((f) => !normalizar(f['TAGS']).includes('on hold'));
+  let filasFiltradas = config.sinFiltro
+    ? filas.slice() // sin filtro: TODA la información, tal cual (ej. weekly maestra de SOB Crew)
+    : filas.filter((f) => normalizar(f[config.filtroColumna]) === normalizar(filtroValor));
+
+  if (!config.incluyeOnHold) {
+    // "On Hold" se excluye de la mayoría de las weeklies (confirmado) — no aplica a esas
+    // cargas hasta que se reactiven. Algunos tipos (ej. sobCrewCompleto) sí las incluyen.
+    filasFiltradas = filasFiltradas.filter((f) => !normalizar(f['TAGS']).includes('on hold'));
+  }
 
   // Orden por la fecha principal de esa weekly (NOB Day para transportistas, Arrival day
   // para brokers, etc.) — no alfabético por cliente. Filas sin fecha válida van al final.
@@ -303,6 +307,10 @@ const EXCLUSIONES_POR_TIPO = {
 async function listarFiltrosDisponibles(tipo, sourceFilePath) {
   const config = WEEKLY_TIPOS[tipo];
   if (!config) throw new Error(`Tipo de weekly desconocido: "${tipo}"`);
+
+  // Tipos sin filtro (ej. la weekly maestra de SOB Crew para Emilia): no hay nada que
+  // elegir, siempre es "una sola opción" con el nombre fijo que trae la configuración.
+  if (config.sinFiltro) return [config.nombreFijo || tipo];
 
   const exclusiones = EXCLUSIONES_POR_TIPO[tipo] || [];
   const filas = await leerPasteHere(sourceFilePath);
