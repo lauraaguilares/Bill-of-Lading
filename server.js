@@ -287,16 +287,19 @@ app.get('/cron/send-weeklies', async (req, res) => {
 });
 
 async function generarYEnviarTodasLasWeeklies() {
+  console.log('[cron/send-weeklies] Arrancando...');
   let filePath;
   try {
     if (!process.env.DROPBOX_MASTER_URL) throw new Error('No hay un archivo maestro configurado en el servidor.');
     filePath = await descargarArchivoMaestro(process.env.DROPBOX_MASTER_URL);
+    console.log('[cron/send-weeklies] Archivo maestro descargado:', filePath);
 
     const adjuntos = [];
     const resumen = { generadas: [], errores: [] };
 
     for (const tipo of Object.keys(WEEKLY_TIPOS)) {
       const filtros = await listarFiltrosDisponibles(tipo, filePath);
+      console.log(`[cron/send-weeklies] ${tipo}: ${filtros.length} opciones ->`, filtros.join(', '));
       for (const filtroValor of filtros) {
         try {
           if (WEEKLY_TIPOS[tipo].formatoSalida === 'imagen') {
@@ -307,12 +310,15 @@ async function generarYEnviarTodasLasWeeklies() {
             adjuntos.push({ filename: path.basename(outPath), path: outPath });
           }
           resumen.generadas.push(`${tipo}: ${filtroValor}`);
+          console.log(`[cron/send-weeklies] OK ${tipo}: ${filtroValor} (${resumen.generadas.length} generadas hasta ahora)`);
         } catch (err) {
           resumen.errores.push(`${tipo}: ${filtroValor} -> ${err.message}`);
+          console.error(`[cron/send-weeklies] FALLÓ ${tipo}: ${filtroValor} ->`, err.message);
         }
       }
     }
 
+    console.log('[cron/send-weeklies] Generación terminada, armando correo con', adjuntos.length, 'adjuntos...');
     const transporter = await crearTransportadorGmail(process.env.GMAIL_USER, process.env.GMAIL_APP_PASSWORD);
     await transporter.sendMail({
       from: process.env.GMAIL_USER,
@@ -323,7 +329,7 @@ async function generarYEnviarTodasLasWeeklies() {
       attachments: adjuntos,
     });
 
-    console.log('[cron/send-weeklies]', JSON.stringify(resumen));
+    console.log('[cron/send-weeklies] Correo enviado. Resumen:', JSON.stringify(resumen));
   } catch (err) {
     console.error('[cron/send-weeklies] ERROR:', err);
     throw err;
@@ -331,6 +337,15 @@ async function generarYEnviarTodasLasWeeklies() {
     if (filePath) fs.unlink(filePath, () => {});
   }
 }
+
+// Por si algo se cae de forma silenciosa fuera de los try/catch de arriba (ej. dentro de
+// una promesa que no se esperó bien) — sin esto, un error así no deja NINGÚN rastro en logs.
+process.on('unhandledRejection', (err) => {
+  console.error('[unhandledRejection]', err);
+});
+process.on('uncaughtException', (err) => {
+  console.error('[uncaughtException]', err);
+});
 
 function normalizeShipmentPayload(body) {
   // El body llega como JSON desde el formulario; 'fecha' viaja como string ISO.
