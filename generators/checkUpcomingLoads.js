@@ -17,7 +17,7 @@ require('dns').setDefaultResultOrder('ipv4first');
 
 const fs = require('fs');
 const path = require('path');
-const nodemailer = require('nodemailer');
+const { crearTransportadorGmail } = require('./mailTransport');
 const ExcelJS = require('exceljs');
 const { generateBOL } = require('./generateBOL');
 const { readShipmentFromSource, listClientsFromSource } = require('./readShipmentFromSource');
@@ -156,10 +156,7 @@ async function enviarBOLPorCorreo(shipment, archivoPath, transporter) {
  */
 async function checkUpcomingLoadsAndSend({ dropboxUrl, gmailUser, gmailAppPassword }) {
   const filePath = await descargarArchivoMaestro(dropboxUrl);
-  const transporter = nodemailer.createTransport({
-    service: 'gmail',
-    auth: { user: gmailUser, pass: gmailAppPassword },
-  });
+  const transporter = await crearTransportadorGmail(gmailUser, gmailAppPassword);
 
   const embarques = await embarquesProximosACargar(filePath, 7);
   const resumen = { revisados: true, encontrados: embarques.length, enviados: [], errores: [] };
