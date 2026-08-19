@@ -223,7 +223,7 @@
       </select>
     </div>
 
-    <div class="card">
+    <div class="card" id="weeklyFiltroCard">
       <div class="step-label"><span class="dot">2</span> Selecciona a quién</div>
       <select id="weeklyFiltro" disabled>
         <option value="">Cargando…</option>
@@ -262,6 +262,7 @@
   });
 
   const weeklyTipoSelect = document.getElementById('weeklyTipo');
+  const weeklyFiltroCard = document.getElementById('weeklyFiltroCard');
   const weeklyFiltroSelect = document.getElementById('weeklyFiltro');
   const weeklyFormatoHint = document.getElementById('weeklyFormatoHint');
   const btnGenerarWeekly = document.getElementById('btnGenerarWeekly');
@@ -273,6 +274,7 @@
   async function cargarFiltrosWeekly() {
     weeklyFiltroSelect.disabled = true;
     weeklyFiltroSelect.innerHTML = '<option value="">Cargando…</option>';
+    weeklyFiltroCard.style.display = '';
     btnGenerarWeekly.disabled = true;
     btnGenerarWeekly.textContent = 'Selecciona una opción primero';
     weeklyStatusEl.textContent = '';
@@ -286,6 +288,20 @@
       weeklyFormatoHint.textContent = data.formatoSalida === 'imagen'
         ? 'Esta weekly se genera como imagen (screenshot), lista para mandar por WhatsApp.'
         : 'Esta weekly se genera como archivo Excel.';
+
+      if (data.sinFiltro) {
+        // Este tipo no necesita elegir nada (ej. "SOB Crew completo" para Emilia) — se
+        // salta el paso 2 por completo y el botón de generar queda listo de una vez.
+        weeklyFiltroCard.style.display = 'none';
+        weeklyFiltroSelect.innerHTML = '';
+        const opt = document.createElement('option');
+        opt.value = data.filtros[0];
+        opt.selected = true;
+        weeklyFiltroSelect.appendChild(opt);
+        btnGenerarWeekly.disabled = false;
+        btnGenerarWeekly.textContent = 'Generar Weekly';
+        return;
+      }
 
       weeklyFiltroSelect.innerHTML = '<option value="">— Elige —</option>';
       data.filtros.forEach((f) => {
