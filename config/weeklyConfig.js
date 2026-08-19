@@ -115,6 +115,35 @@ const WEEKLY_TIPOS = {
       { col: 'SOB Notes for Crew', label: 'Notas', esNota: true },
     ],
   },
+
+  // Weekly "maestra" para Emilia: TODA la información de SOB Crew, sin filtrar por
+  // descargador individual (a diferencia de "crew" arriba) y SIN excluir "On Hold"
+  // (confirmado con el ejemplo que Laura compartió — esta sí los incluye).
+  sobCrewCompleto: {
+    sinFiltro: true,
+    nombreFijo: 'SOB Crew',
+    incluyeOnHold: true,
+    formatoSalida: 'excel',
+    columnas: [
+      { col: 'CLIENT', label: 'CLIENTE', identidad: true },
+      { col: "Client's Phone", label: 'Teléfono del cliente', identidad: true },
+      { col: 'TAGS', label: 'TAGS', identidad: true },
+      { col: 'PMA', label: 'PMA', identidad: true },
+      { col: 'X SOB Day for Truck to Arrive', label: 'Día que llega el camión', esFechaPrincipal: true, esFechaLlegadaMX: true },
+      { col: 'SOB Truck Type', label: 'Tipo de camión', operativa: true },
+      { col: 'Size of the Shipment', label: 'Tamaño de carga', operativa: true },
+      { col: 'Crates', label: 'Crates', operativa: true },
+      { col: 'X SOB Earliest Day to Receive Shipment', label: 'Primer día que se puede recibir' },
+      { col: 'X SOB Latest Day to Receive Shipment', label: 'Último día que se puede recibir' },
+      { col: 'SOB Address', label: 'Dirección', operativa: true },
+      { col: 'SOB Meeting Point', label: 'Punto de encuentro', operativa: true },
+      { col: 'SOB (Un)Loading Plan', label: 'Plan para cargar / descargar', operativa: true },
+      { col: 'SOB Shuttle', label: 'Acarreo', operativa: true },
+      { col: 'SOB Notes for Crew', label: 'Notas', esNota: true },
+      { col: 'SOB Contact for Driver', label: 'Contacto para el chofer', operativa: true },
+      { col: 'SOB Crew', label: 'Crew', identidad: true },
+    ],
+  },
 };
 
 module.exports = { COLORES, COLUMNAS_IDENTIDAD, esTextoPendiente, WEEKLY_TIPOS };
