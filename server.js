@@ -30,7 +30,7 @@ const { readShipmentFromSource, listClientsFromSource } = require('./generators/
 const { checkUpcomingLoadsAndSend, descargarArchivoMaestro } = require('./generators/checkUpcomingLoads');
 const { generateWeekly, generateWeeklyImage, listarFiltrosDisponibles } = require('./generators/generateWeekly');
 const { WEEKLY_TIPOS } = require('./config/weeklyConfig');
-const nodemailer = require('nodemailer');
+const { crearTransportadorGmail } = require('./generators/mailTransport');
 
 const app = express();
 app.use(express.json());
@@ -313,10 +313,7 @@ async function generarYEnviarTodasLasWeeklies() {
       }
     }
 
-    const transporter = nodemailer.createTransport({
-      service: 'gmail',
-      auth: { user: process.env.GMAIL_USER, pass: process.env.GMAIL_APP_PASSWORD },
-    });
+    const transporter = await crearTransportadorGmail(process.env.GMAIL_USER, process.env.GMAIL_APP_PASSWORD);
     await transporter.sendMail({
       from: process.env.GMAIL_USER,
       to: process.env.GMAIL_USER, // se manda a Laura misma, ella reenvía a cada quien
