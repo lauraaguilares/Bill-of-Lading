@@ -39,6 +39,7 @@ const IMAGEN_POR_BRACKET_HASTA = {
   1000: { path: path.join(ASSETS_DIR, 'trucks', 'medium.png'), ratio: 381 / 159 },
   1450: { path: path.join(ASSETS_DIR, 'trucks', 'large.png'), ratio: 404 / 167 },
   2400: { path: path.join(ASSETS_DIR, 'trucks', 'trailer53.png'), ratio: 520 / 102 },
+  3400: { path: path.join(ASSETS_DIR, 'trucks', 'trailer53.png'), ratio: 520 / 102 }, // mismo tráiler, bracket más alto
 };
 
 const TEXTO_INTRO = `At Best Mexico Movers, we want to make sure you understand your costs if your shipment exceeds the amounts in your agreement. That's why we made the chart on the next page.
@@ -55,10 +56,12 @@ function calcularTabla(datos) {
   const trailer = TRAILER_US[datos.trailerSizeUS];
   if (!trailer) {
     throw new Error(
-      `Trailer de ${datos.trailerSizeUS} ft todavía no está configurado (solo 28ft por ahora). ` +
+      `Trailer de ${datos.trailerSizeUS} ft todavía no está configurado (solo 26/28/53ft por ahora). ` +
       `Avísame para agregar este tamaño.`
     );
   }
+
+  if (trailer.modoResumen) return calcularTablaResumen(datos, trailer);
 
   const filas = [];
   for (let pieLineal = datos.contractedLinearFeet; pieLineal <= trailer.maxPiesLineales; pieLineal += 1) {
@@ -76,6 +79,31 @@ function calcularTabla(datos) {
       total: precioTrailerUS + precioTruckMX,
     });
   }
+  return filas;
+}
+
+/**
+ * Cálculo para trailers en "modo resumen" (53ft): solo se muestra 1 fila por cada punto
+ * donde cambia el bracket de México (no 1 fila por cada pie lineal individual), empezando
+ * en el primer punto de quiebre que sea >= lo que el cliente ya tiene contratado.
+ */
+function calcularTablaResumen(datos, trailer) {
+  const filas = [];
+  trailer.puntosDeQuiebre.forEach((punto) => {
+    if (punto.pieLineal < datos.contractedLinearFeet) return; // ya incluido en lo contratado
+    const precioTrailerUS = Math.max(0, punto.pieLineal - datos.contractedLinearFeet) * datos.precioPorPieAdicional;
+    const bracket = bracketParaCubicFt(punto.cubicFt);
+    const precioTruckMX = precioParaBracket(bracket, datos.preciosMexico);
+    filas.push({
+      pieLineal: `Up to ${punto.pieLineal}`,
+      cubicFt: `Up to ${punto.cubicFt.toLocaleString('en-US')}`,
+      precioTrailerUS,
+      bracketLabel: bracket.label,
+      bracketHasta: bracket.hasta,
+      precioTruckMX,
+      total: precioTrailerUS + precioTruckMX,
+    });
+  });
   return filas;
 }
 
@@ -203,7 +231,7 @@ async function generateAdditionalCosts(contractPdfPath) {
 
   const resumenAgreement = [
     ['How Many Linear Feet in the US with No Additional Cost', datos.contractedLinearFeet, '#,##0'],
-    ['How Many Cubic Feet in the US with No Additional Cost', datos.contractedLinearFeet * TRAILER_US[datos.trailerSizeUS].cubicFtPorPieLineal, '#,##0'],
+    ['How Many Cubic Feet in the US with No Additional Cost', datos.origenAmount, '#,##0'],
     ['Price for Each Additional Linear Foot in the US if You Use More Than in the Agreement', datos.precioPorPieAdicional, '"$"#,##0'],
   ];
   resumenAgreement.forEach(([label, valor, formato]) => {
