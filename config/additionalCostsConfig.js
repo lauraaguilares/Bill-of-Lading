@@ -33,9 +33,13 @@ const TRAILER_US = {
   },
   26: {
     cubicFtPorPieLineal: 64,
-    maxPiesLineales: 26,
+    maxPiesLineales: 26, // hasta dónde se muestra la tabla (aunque ya no se pueda usar)
     labelGrupo: '26-Foot Box Truck in the US',
     labelPrecio: 'Additional Price for Truck in the US',
+    // Confirmado: TODO camión de 26ft topa físicamente aquí, sin importar el cliente —
+    // no es un dato que varíe por contrato.
+    maxCapacidadFisica: 21, // pies lineales
+    maxPesoLbs: 9000,
   },
   // 53ft usa una estructura distinta: en vez de desglosar CADA pie lineal, la plantilla
   // muestra solo los puntos donde cambia de bracket en México ("Up to 8 / Up to 600", "Up
