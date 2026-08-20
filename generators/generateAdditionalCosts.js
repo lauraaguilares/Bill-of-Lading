@@ -225,28 +225,36 @@ async function generateAdditionalCosts(contractPdfPath) {
   ws.getCell(`A${fila}`).alignment = { horizontal: 'center' };
   fila += 2;
 
-  const filaAgreementBar = fila;
-  barraEncabezado(ws, `A${fila}:I${fila}`, 'What Your Agreement Says');
-  fila += 1;
-
-  const resumenAgreement = [
-    ['How Many Linear Feet in the US with No Additional Cost', datos.contractedLinearFeet, '#,##0'],
-    ['How Many Cubic Feet in the US with No Additional Cost', datos.origenAmount, '#,##0'],
-    ['Price for Each Additional Linear Foot in the US if You Use More Than in the Agreement', datos.precioPorPieAdicional, '"$"#,##0'],
-  ];
-  resumenAgreement.forEach(([label, valor, formato]) => {
-    ws.mergeCells(`A${fila}:G${fila}`);
-    ws.getCell(`A${fila}`).value = label;
-    ws.getCell(`A${fila}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_MUY_CLARO } };
-    ws.mergeCells(`H${fila}:I${fila}`);
-    ws.getCell(`H${fila}`).value = valor;
-    ws.getCell(`H${fila}`).numFmt = formato;
-    ws.getCell(`H${fila}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_MUY_CLARO } };
-    ws.getCell(`H${fila}`).alignment = { horizontal: 'right' };
+  // "What Your Agreement Says": el contenido varía según el tamaño de trailer, confirmado
+  // directo en cada plantilla — 28ft muestra el desglose de 3 líneas; 26ft muestra solo
+  // "Base Cost on Agreement" (el precio total del contrato, Sección 9.A); 53ft NO TIENE
+  // esta sección — pasa directo del título a la tabla principal.
+  if (datos.trailerSizeUS !== 53) {
+    const filaAgreementBar = fila;
+    barraEncabezado(ws, `A${fila}:I${fila}`, 'What Your Agreement Says');
     fila += 1;
-  });
-  ponerBordes(ws, filaAgreementBar, fila - 1, 1, 9);
-  fila += 2;
+
+    const resumenAgreement = datos.trailerSizeUS === 26
+      ? [['Base Cost on Agreement', datos.precioTotalContrato, '"$"#,##0']]
+      : [
+          ['How Many Linear Feet in the US with No Additional Cost', datos.contractedLinearFeet, '#,##0'],
+          ['How Many Cubic Feet in the US with No Additional Cost', datos.origenAmount, '#,##0'],
+          ['Price for Each Additional Linear Foot in the US if You Use More Than in the Agreement', datos.precioPorPieAdicional, '"$"#,##0'],
+        ];
+    resumenAgreement.forEach(([label, valor, formato]) => {
+      ws.mergeCells(`A${fila}:G${fila}`);
+      ws.getCell(`A${fila}`).value = label;
+      ws.getCell(`A${fila}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_MUY_CLARO } };
+      ws.mergeCells(`H${fila}:I${fila}`);
+      ws.getCell(`H${fila}`).value = valor;
+      ws.getCell(`H${fila}`).numFmt = formato;
+      ws.getCell(`H${fila}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_MUY_CLARO } };
+      ws.getCell(`H${fila}`).alignment = { horizontal: 'right' };
+      fila += 1;
+    });
+    ponerBordes(ws, filaAgreementBar, fila - 1, 1, 9);
+    fila += 2;
+  }
 
   const filaGrupoHeader = fila;
   ws.mergeCells(`A${fila}:C${fila}`);
