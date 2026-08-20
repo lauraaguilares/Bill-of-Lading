@@ -66,17 +66,21 @@ function calcularTabla(datos) {
   const filas = [];
   for (let pieLineal = datos.contractedLinearFeet; pieLineal <= trailer.maxPiesLineales; pieLineal += 1) {
     const cubicFt = pieLineal * trailer.cubicFtPorPieLineal;
-    const precioTrailerUS = (pieLineal - datos.contractedLinearFeet) * datos.precioPorPieAdicional;
+    // Si el camión tiene un tope físico fijo (ej. 26ft topa en 21 pies), lo que exceda ese
+    // tope no es que cueste más — literalmente no se puede usar ese camión.
+    const excedeCapacidadFisica = trailer.maxCapacidadFisica != null && pieLineal > trailer.maxCapacidadFisica;
+    const precioTrailerUS = excedeCapacidadFisica ? null : (pieLineal - datos.contractedLinearFeet) * datos.precioPorPieAdicional;
     const bracket = bracketParaCubicFt(cubicFt);
     const precioTruckMX = precioParaBracket(bracket, datos.preciosMexico);
     filas.push({
       pieLineal,
       cubicFt,
       precioTrailerUS,
+      excedeCapacidadFisica,
       bracketLabel: bracket.label,
       bracketHasta: bracket.hasta,
       precioTruckMX,
-      total: precioTrailerUS + precioTruckMX,
+      total: (precioTrailerUS || 0) + precioTruckMX,
     });
   }
   return filas;
@@ -175,6 +179,7 @@ async function generateAdditionalCosts(contractPdfPath) {
   }
 
   const filas = calcularTabla(datos);
+  const trailerConfig = TRAILER_US[datos.trailerSizeUS];
 
   const workbook = new ExcelJS.Workbook();
   const ws = workbook.addWorksheet('Costos Adicionales');
@@ -235,7 +240,10 @@ async function generateAdditionalCosts(contractPdfPath) {
     fila += 1;
 
     const resumenAgreement = datos.trailerSizeUS === 26
-      ? [['Base Cost on Agreement', datos.precioTotalContrato, '"$"#,##0']]
+      ? [
+          ['Base Cost on Agreement', datos.precioTotalContrato, '"$"#,##0'],
+          ['Maximum Weight Allowed (lbs)', TRAILER_US[26].maxPesoLbs, '#,##0'],
+        ]
       : [
           ['How Many Linear Feet in the US with No Additional Cost', datos.contractedLinearFeet, '#,##0'],
           ['How Many Cubic Feet in the US with No Additional Cost', datos.origenAmount, '#,##0'],
@@ -332,9 +340,9 @@ async function generateAdditionalCosts(contractPdfPath) {
       ws.getCell(`A${fila}`).value = f.pieLineal;
       ws.getCell(`B${fila}`).value = f.cubicFt;
       ws.getCell(`B${fila}`).numFmt = '#,##0';
-      ws.getCell(`C${fila}`).value = f.precioTrailerUS;
-      ws.getCell(`C${fila}`).numFmt = FORMATO_CONTABILIDAD;
-      [`A${fila}`, `B${fila}`, `C${fila}`].forEach((c) => {
+      // La columna C (precio del trailer en EE.UU.) se llena después, en un solo bloque
+      // fusionado por cada tramo de "$0" o "CAN'T USE" — ver más abajo.
+      [`A${fila}`, `B${fila}`].forEach((c) => {
         ws.getCell(c).alignment = { horizontal: 'center', vertical: 'middle' };
         ws.getCell(c).font = { size: 11 };
       });
@@ -355,7 +363,7 @@ async function generateAdditionalCosts(contractPdfPath) {
       // Línea delgada entre cada fila individual (además de la raya de color) — así se ve
       // igual que la referencia, no solo un bloque de color liso.
       if (idx < grupo.filas.length - 1 || grupos.indexOf(grupo) < grupos.length - 1 || f !== filas[filas.length - 1]) {
-        [`A${fila}`, `B${fila}`, `C${fila}`, `I${fila}`].forEach((c) => {
+        [`A${fila}`, `B${fila}`, `I${fila}`].forEach((c) => {
           const actual = ws.getCell(c).border || {};
           ws.getCell(c).border = { ...actual, bottom: { style: 'thin', color: { argb: 'FFBDD7EE' } } };
         });
@@ -405,6 +413,43 @@ async function generateAdditionalCosts(contractPdfPath) {
   ws.getCell(`H${filaInicioTabla}`).value = '=';
   ws.getCell(`H${filaInicioTabla}`).font = { bold: true, size: 20 };
   ws.getCell(`H${filaInicioTabla}`).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  // Columna C: para camiones con tope físico fijo (26ft), se fusiona en UN bloque por tramo
+  // (todo el tramo sin costo junto, y todo "CAN'T USE" junto) — igual que la referencia. Para
+  // camiones sin tope (28ft), cada fila lleva su propio valor individual, porque sí cambia
+  // fila por fila.
+  if (trailerConfig.maxCapacidadFisica != null) {
+    let filaTramoInicio = filaInicioTabla;
+    for (let i = 0; i <= filas.length; i += 1) {
+      const actual = filas[i];
+      const anterior = filas[i - 1];
+      const cambioDeTramo = !anterior || !actual || anterior.excedeCapacidadFisica !== actual.excedeCapacidadFisica;
+      if (cambioDeTramo && anterior) {
+        const filaTramoFin = filaInicioTabla + i - 1;
+        ws.mergeCells(`C${filaTramoInicio}:C${filaTramoFin}`);
+        const cell = ws.getCell(`C${filaTramoInicio}`);
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        if (anterior.excedeCapacidadFisica) {
+          cell.value = "CAN'T USE";
+          cell.font = { size: 12, bold: true, color: { argb: 'FFFF0000' } };
+        } else {
+          cell.value = 0;
+          cell.numFmt = FORMATO_CONTABILIDAD;
+          cell.font = { size: 11 };
+        }
+        filaTramoInicio = filaTramoFin + 1;
+      }
+    }
+  } else {
+    filas.forEach((f, i) => {
+      const filaActual = filaInicioTabla + i;
+      const cell = ws.getCell(`C${filaActual}`);
+      cell.value = f.precioTrailerUS;
+      cell.numFmt = FORMATO_CONTABILIDAD;
+      cell.alignment = { horizontal: 'center', vertical: 'middle' };
+      cell.font = { size: 11 };
+    });
+  }
 
   ponerBordesTabla(ws, filaGrupoHeader, fila - 1);
   divisoresEntreBloques.forEach((filaDivisor) => divisorHorizontal(ws, filaDivisor, 5, 7));
