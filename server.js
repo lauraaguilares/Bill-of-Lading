@@ -31,6 +31,8 @@ const { checkUpcomingLoadsAndSend, descargarArchivoMaestro } = require('./genera
 const { generateWeekly, generateWeeklyImage, listarFiltrosDisponibles } = require('./generators/generateWeekly');
 const { WEEKLY_TIPOS } = require('./config/weeklyConfig');
 const { enviarCorreo } = require('./generators/mailTransport');
+const { parsearContrato } = require('./generators/contractParser');
+const { generateAdditionalCostsPDF } = require('./generators/generateAdditionalCosts');
 
 const app = express();
 app.use(express.json());
@@ -372,6 +374,43 @@ function convertToPDF(xlsxPath) {
     );
   });
 }
+
+/**
+ * POST /additional-costs/parse (multipart, campo "contrato")
+ * Lee el contrato PDF y devuelve los datos extraídos, para que Laura los confirme con un
+ * vistazo ANTES de generar el documento final (el parser depende de que el contrato
+ * mantenga la redacción de la plantilla — si cambia, puede fallar en algún campo).
+ */
+app.post('/additional-costs/parse', upload.single('contrato'), async (req, res) => {
+  try {
+    if (!req.file) throw new Error('No se recibió ningún contrato.');
+    const datos = await parsearContrato(req.file.path);
+    res.json({ datos });
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message });
+  } finally {
+    if (req.file) fs.unlink(req.file.path, () => {});
+  }
+});
+
+/**
+ * POST /additional-costs/generate (multipart, campo "contrato")
+ * Genera "Understanding Additional Costs for Larger Shipments" a partir del contrato.
+ * Por ahora solo soporta Southbound (origen EE.UU. → destino México) en 26/28/53 ft.
+ */
+app.post('/additional-costs/generate', upload.single('contrato'), async (req, res) => {
+  try {
+    if (!req.file) throw new Error('No se recibió ningún contrato.');
+    const { pdfPath } = await generateAdditionalCostsPDF(req.file.path);
+    res.download(pdfPath);
+  } catch (err) {
+    console.error(err);
+    res.status(400).json({ error: err.message });
+  } finally {
+    if (req.file) fs.unlink(req.file.path, () => {});
+  }
+});
 
 const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log(`BMM Document Generator escuchando en puerto ${PORT}`));
