@@ -166,6 +166,7 @@
     <div class="format-toggle" style="margin-bottom:0;">
       <button type="button" id="tabBol" class="active">Bill of Lading</button>
       <button type="button" id="tabWeekly">Weekly</button>
+      <button type="button" id="tabCosts">Costos Adicionales</button>
     </div>
   </div>
 
@@ -237,11 +238,150 @@
       <div id="weeklyStatus"></div>
     </div>
   </div>
+
+  <div id="costsSection" style="display:none;">
+    <div class="card">
+      <div class="step-label"><span class="dot">1</span> Contrato del cliente</div>
+      <label for="contratoInput">Sube el "Moving Services Agreement" firmado (.pdf)</label>
+      <input type="file" id="contratoInput" accept=".pdf" />
+      <p class="hint">Por ahora solo Southbound (EE.UU. → México), trailer de 26/28/53 ft. El archivo no se guarda en el servidor.</p>
+      <button type="button" id="btnLeerContrato" disabled style="margin-top:10px;">Leer contrato</button>
+      <div id="costsParseStatus"></div>
+    </div>
+
+    <div class="card" id="costsRevisionCard" style="display:none;">
+      <div class="step-label"><span class="dot">2</span> Confirma los datos leídos</div>
+      <p class="hint">El lector depende de que el contrato mantenga la redacción de la plantilla — revisa que esto coincida con el contrato antes de generar.</p>
+      <div id="costsDatosExtraidos" style="font-size:14px; line-height:1.6;"></div>
+    </div>
+
+    <div class="card" id="costsGenerarCard" style="display:none;">
+      <div class="step-label"><span class="dot">3</span> Generar</div>
+      <button id="btnGenerarCosts">Se ve bien, generar PDF</button>
+      <div id="costsGenerateStatus"></div>
+    </div>
+  </div>
 </main>
 
 <footer>BMM Document Generator</footer>
 
 <script>
+  const tabCosts = document.getElementById('tabCosts');
+  const costsSection = document.getElementById('costsSection');
+  const contratoInput = document.getElementById('contratoInput');
+  const btnLeerContrato = document.getElementById('btnLeerContrato');
+  const costsParseStatus = document.getElementById('costsParseStatus');
+  const costsRevisionCard = document.getElementById('costsRevisionCard');
+  const costsDatosExtraidos = document.getElementById('costsDatosExtraidos');
+  const costsGenerarCard = document.getElementById('costsGenerarCard');
+  const btnGenerarCosts = document.getElementById('btnGenerarCosts');
+  const costsGenerateStatus = document.getElementById('costsGenerateStatus');
+  let contratoArchivoActual = null;
+
+  tabCosts.addEventListener('click', () => {
+    tabCosts.classList.add('active');
+    tabBol.classList.remove('active');
+    tabWeekly.classList.remove('active');
+    bolSection.style.display = 'none';
+    weeklySection.style.display = 'none';
+    costsSection.style.display = '';
+  });
+
+  contratoInput.addEventListener('change', () => {
+    contratoArchivoActual = contratoInput.files[0] || null;
+    btnLeerContrato.disabled = !contratoArchivoActual;
+    costsRevisionCard.style.display = 'none';
+    costsGenerarCard.style.display = 'none';
+    costsParseStatus.textContent = '';
+  });
+
+  const ETIQUETAS_DATOS = {
+    clientName: 'Cliente',
+    origenTexto: 'Dirección de origen',
+    destinoTexto: 'Dirección de destino',
+    origenAmount: 'Origin Amount (cubic ft)',
+    destinationAmount: 'Destination Amount (cubic ft)',
+    contractedLinearFeet: 'Pies lineales sin costo',
+    precioPorPieAdicional: 'Precio por pie lineal extra',
+    trailerSizeUS: 'Tamaño de trailer (EE.UU.)',
+  };
+
+  btnLeerContrato.addEventListener('click', async () => {
+    if (!contratoArchivoActual) return;
+    btnLeerContrato.disabled = true;
+    btnLeerContrato.textContent = 'Leyendo…';
+    costsParseStatus.textContent = '';
+    costsParseStatus.className = '';
+
+    const formData = new FormData();
+    formData.append('contrato', contratoArchivoActual);
+
+    try {
+      const res = await fetch('/additional-costs/parse', { method: 'POST', body: formData });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'No se pudo leer el contrato.');
+
+      const d = data.datos;
+      let html = '<ul style="padding-left:18px; margin:0;">';
+      Object.entries(ETIQUETAS_DATOS).forEach(([campo, etiqueta]) => {
+        if (d[campo] === undefined) return;
+        let valor = d[campo];
+        if (campo === 'origenTexto' || campo === 'destinoTexto') valor = String(valor).replace(/\n/g, ', ');
+        if (campo === 'precioPorPieAdicional') valor = '$' + valor;
+        if (campo === 'trailerSizeUS') valor = valor + ' ft';
+        html += `<li><b>${etiqueta}:</b> ${valor}</li>`;
+      });
+      html += `<li><b>Dirección:</b> ${d.paisOrigen} → ${d.paisDestino}</li>`;
+      html += '</ul>';
+      costsDatosExtraidos.innerHTML = html;
+      costsRevisionCard.style.display = '';
+      costsGenerarCard.style.display = '';
+      costsGenerateStatus.textContent = '';
+    } catch (err) {
+      costsParseStatus.textContent = err.message;
+      costsParseStatus.className = 'error';
+    } finally {
+      btnLeerContrato.disabled = false;
+      btnLeerContrato.textContent = 'Leer contrato';
+    }
+  });
+
+  btnGenerarCosts.addEventListener('click', async () => {
+    if (!contratoArchivoActual) return;
+    btnGenerarCosts.disabled = true;
+    btnGenerarCosts.textContent = 'Generando…';
+    costsGenerateStatus.textContent = 'Generando el documento…';
+    costsGenerateStatus.className = '';
+
+    const formData = new FormData();
+    formData.append('contrato', contratoArchivoActual);
+
+    try {
+      const res = await fetch('/additional-costs/generate', { method: 'POST', body: formData });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.error || 'No se pudo generar el documento.');
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = 'Understanding Additional Costs.pdf';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+      costsGenerateStatus.textContent = 'Listo, se descargó el PDF.';
+      costsGenerateStatus.className = 'ok';
+    } catch (err) {
+      costsGenerateStatus.textContent = err.message;
+      costsGenerateStatus.className = 'error';
+    } finally {
+      btnGenerarCosts.disabled = false;
+      btnGenerarCosts.textContent = 'Se ve bien, generar PDF';
+    }
+  });
+
   const tabBol = document.getElementById('tabBol');
   const tabWeekly = document.getElementById('tabWeekly');
   const bolSection = document.getElementById('bolSection');
@@ -250,14 +390,18 @@
   tabBol.addEventListener('click', () => {
     tabBol.classList.add('active');
     tabWeekly.classList.remove('active');
+    tabCosts.classList.remove('active');
     bolSection.style.display = '';
     weeklySection.style.display = 'none';
+    costsSection.style.display = 'none';
   });
   tabWeekly.addEventListener('click', () => {
     tabWeekly.classList.add('active');
     tabBol.classList.remove('active');
+    tabCosts.classList.remove('active');
     bolSection.style.display = 'none';
     weeklySection.style.display = '';
+    costsSection.style.display = 'none';
     cargarFiltrosWeekly();
   });
 
