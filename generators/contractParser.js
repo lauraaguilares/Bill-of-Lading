@@ -53,6 +53,18 @@ async function parsearContrato(filePath) {
   const contractedLinearFeet = Number(extraer(sinSaltos, /up to (\d+) linear feet\s*\(Contracted Linear Feet\)/, 'Contracted Linear Feet'));
   const precioPorPieAdicional = Number(extraer(sinSaltos, /Each additional\s+linear foot is charged at \$([\d,.]+)/, 'precio por pie lineal adicional').replace(/,/g, ''));
 
+  // Solo se usa para mostrar "Base Cost on Agreement" en la tabla de 26ft — el resto de
+  // los tamaños no lo necesitan, así que no truena si no se encuentra (contrato podría
+  // redactar esta sección distinto en casos raros).
+  let precioTotalContrato = null;
+  try {
+    precioTotalContrato = Number(
+      extraer(sinSaltos, /Total Price for All Services[\s\S]{0,120}?\$([\d,.]+)/, 'precio total del contrato').replace(/,/g, '')
+    );
+  } catch (err) {
+    // se deja en null; solo hace falta para 26ft
+  }
+
   const trailerSizeTexto = extraer(sinSaltos, /We will have delivered to Origin a (\d+)-foot trailer/, 'tamaño del trailer en EE.UU.');
   const trailerSizeUS = Number(trailerSizeTexto);
 
@@ -78,6 +90,7 @@ async function parsearContrato(filePath) {
     destinationAmount,
     contractedLinearFeet,
     precioPorPieAdicional,
+    precioTotalContrato,
     trailerSizeUS,
     preciosMexico, // [{ hastaCubicFt, precio }] o [{ desde, hasta, precio }]
   };
