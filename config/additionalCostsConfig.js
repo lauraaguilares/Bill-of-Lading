@@ -40,6 +40,10 @@ const TRAILER_US = {
     // no es un dato que varíe por contrato.
     maxCapacidadFisica: 21, // pies lineales
     maxPesoLbs: 9000,
+    // Confirmado: la tabla siempre muestra el rango completo desde este punto, sin
+    // importar en qué pie esté contratado el cliente (mismo valor que usa la plantilla
+    // original de BMM).
+    pieLinealMinimoTabla: 4,
   },
   // 53ft usa una estructura distinta: en vez de desglosar CADA pie lineal, la plantilla
   // muestra solo los puntos donde cambia de bracket en México ("Up to 8 / Up to 600", "Up
@@ -71,12 +75,19 @@ function bracketParaCubicFt(cubicFt) {
  * Encuentra el precio (del contrato) que corresponde a un bracket específico. Si el
  * contrato no lo menciona explícitamente, se asume $0 (ya incluido en lo contratado).
  */
+/**
+ * Busca si el contrato SÍ le puso precio explícito a este bracket — se compara solo por
+ * "hasta" (identifica el bracket de forma única), sin importar si en el contrato esa línea
+ * vino como "Up to X" o como rango "X to Y" (esto último depende de en qué bracket empieza
+ * el cliente, no de cuál bracket es).
+ */
+function tienePrecioExplicito(bracket, preciosMexico) {
+  return preciosMexico.some((p) => p.hasta === bracket.hasta);
+}
+
 function precioParaBracket(bracket, preciosMexico) {
-  const encontrado = preciosMexico.find((p) => {
-    if (p.desde != null) return p.desde === bracket.desde && p.hasta === bracket.hasta;
-    return p.hasta === bracket.hasta && bracket.desde == null;
-  });
+  const encontrado = preciosMexico.find((p) => p.hasta === bracket.hasta);
   return encontrado ? encontrado.precio : 0;
 }
 
-module.exports = { BRACKETS_MEXICO, TRAILER_US, bracketParaCubicFt, precioParaBracket };
+module.exports = { BRACKETS_MEXICO, TRAILER_US, bracketParaCubicFt, precioParaBracket, tienePrecioExplicito };
