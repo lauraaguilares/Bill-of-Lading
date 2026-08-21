@@ -63,8 +63,18 @@ function calcularTabla(datos) {
 
   if (trailer.modoResumen) return calcularTablaResumen(datos, trailer);
 
+  // Para camiones con tope físico fijo (26ft): la tabla SIEMPRE muestra el rango completo
+  // desde el mínimo hasta el máximo, sin importar en qué pie esté contratado el cliente —
+  // confirmado: TODO cliente de 26ft ya paga por el camión completo, así que el "$0" aplica
+  // universalmente a cualquier punto de ese rango, no solo desde su propio contrato.
+  // Para camiones sin tope (28ft): la tabla empieza en el punto específico del cliente, ya
+  // que ahí sí se negocia una cantidad parcial.
+  const pieLinealInicio = trailer.maxCapacidadFisica != null
+    ? trailer.pieLinealMinimoTabla
+    : datos.contractedLinearFeet;
+
   const filas = [];
-  for (let pieLineal = datos.contractedLinearFeet; pieLineal <= trailer.maxPiesLineales; pieLineal += 1) {
+  for (let pieLineal = pieLinealInicio; pieLineal <= trailer.maxPiesLineales; pieLineal += 1) {
     const cubicFt = pieLineal * trailer.cubicFtPorPieLineal;
     // Si el camión tiene un tope físico fijo (ej. 26ft topa en 21 pies), lo que exceda ese
     // tope no es que cueste más — literalmente no se puede usar ese camión.
@@ -93,8 +103,9 @@ function calcularTabla(datos) {
  */
 function calcularTablaResumen(datos, trailer) {
   const filas = [];
+  // Confirmado: igual que 26ft, la tabla de 53ft siempre muestra TODOS los puntos de
+  // quiebre, sin importar en qué pie esté contratado el cliente.
   trailer.puntosDeQuiebre.forEach((punto) => {
-    if (punto.pieLineal < datos.contractedLinearFeet) return; // ya incluido en lo contratado
     const precioTrailerUS = Math.max(0, punto.pieLineal - datos.contractedLinearFeet) * datos.precioPorPieAdicional;
     const bracket = bracketParaCubicFt(punto.cubicFt);
     const precioTruckMX = precioParaBracket(bracket, datos.preciosMexico);
@@ -242,7 +253,6 @@ async function generateAdditionalCosts(contractPdfPath) {
     const resumenAgreement = datos.trailerSizeUS === 26
       ? [
           ['Base Cost on Agreement', datos.precioTotalContrato, '"$"#,##0'],
-          ['Maximum Weight Allowed (lbs)', TRAILER_US[26].maxPesoLbs, '#,##0'],
         ]
       : [
           ['How Many Linear Feet in the US with No Additional Cost', datos.contractedLinearFeet, '#,##0'],
@@ -347,12 +357,7 @@ async function generateAdditionalCosts(contractPdfPath) {
         ws.getCell(c).font = { size: 11 };
       });
 
-      // Rayas alternadas, igual que la plantilla original — en TODAS las columnas de datos
-      // (A-C y el Total), no solo el Total.
-      ws.getCell(`I${fila}`).value = f.total;
-      ws.getCell(`I${fila}`).numFmt = FORMATO_CONTABILIDAD;
-      ws.getCell(`I${fila}`).alignment = { horizontal: 'center', vertical: 'middle' };
-      ws.getCell(`I${fila}`).font = { size: 11 };
+      // Rayas alternadas, igual que la plantilla original.
       if (fila % 2 === 0) {
         [`A${fila}`, `B${fila}`, `C${fila}`, `I${fila}`].forEach((c) => {
           ws.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_CLARO } };
@@ -363,7 +368,7 @@ async function generateAdditionalCosts(contractPdfPath) {
       // Línea delgada entre cada fila individual (además de la raya de color) — así se ve
       // igual que la referencia, no solo un bloque de color liso.
       if (idx < grupo.filas.length - 1 || grupos.indexOf(grupo) < grupos.length - 1 || f !== filas[filas.length - 1]) {
-        [`A${fila}`, `B${fila}`, `I${fila}`].forEach((c) => {
+        [`A${fila}`, `B${fila}`].forEach((c) => {
           const actual = ws.getCell(c).border || {};
           ws.getCell(c).border = { ...actual, bottom: { style: 'thin', color: { argb: 'FFBDD7EE' } } };
         });
@@ -394,6 +399,30 @@ async function generateAdditionalCosts(contractPdfPath) {
     ws.getCell(`G${filaInicioGrupo}`).numFmt = '$#,##0';
     ws.getCell(`G${filaInicioGrupo}`).alignment = { horizontal: 'center', vertical: 'middle' };
     ws.getCell(`G${filaInicioGrupo}`).font = { size: 13 };
+
+    // Total: en camiones con tope físico fijo (26ft), el precio en EE.UU. siempre es $0, así
+    // que el Total dentro de un mismo bracket de México es idéntico en todas sus filas — se
+    // fusiona en un solo bloque igual que la columna del camión. En camiones sin tope (28ft),
+    // el precio en EE.UU. sí escala fila por fila, así que el Total se deja individual.
+    if (trailerConfig.maxCapacidadFisica != null) {
+      ws.mergeCells(`I${filaInicioGrupo}:I${filaFinGrupo}`);
+      ws.getCell(`I${filaInicioGrupo}`).value = grupo.filas[0].total;
+      ws.getCell(`I${filaInicioGrupo}`).numFmt = FORMATO_CONTABILIDAD;
+      ws.getCell(`I${filaInicioGrupo}`).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(`I${filaInicioGrupo}`).font = { size: 11 };
+      if (grupos.indexOf(grupo) % 2 === 1) {
+        ws.getCell(`I${filaInicioGrupo}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_CLARO } };
+      }
+    } else {
+      grupo.filas.forEach((f, idx) => {
+        const filaActual = filaInicioGrupo + idx;
+        const cell = ws.getCell(`I${filaActual}`);
+        cell.value = f.total;
+        cell.numFmt = FORMATO_CONTABILIDAD;
+        cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        cell.font = { size: 11 };
+      });
+    }
 
     // Línea divisoria entre bloques de tipo de camión (como en el original) — se dibuja
     // DESPUÉS de la caja completa (ver ponerBordesTabla), para no perderse al fusionar celdas.
@@ -436,6 +465,11 @@ async function generateAdditionalCosts(contractPdfPath) {
           cell.value = 0;
           cell.numFmt = FORMATO_CONTABILIDAD;
           cell.font = { size: 11 };
+          cell.alignment = { horizontal: 'center', vertical: 'middle' };
+        }
+        // Línea divisoria entre el tramo de "$0" y el de "CAN'T USE" (si hay uno después).
+        if (actual) {
+          ws.getCell(`C${filaTramoFin}`).border = { ...(ws.getCell(`C${filaTramoFin}`).border || {}), bottom: BORDE };
         }
         filaTramoInicio = filaTramoFin + 1;
       }
