@@ -10,7 +10,7 @@ const path = require('path');
 const fs = require('fs');
 const { execFile } = require('child_process');
 const { parsearContrato } = require('./contractParser');
-const { BRACKETS_MEXICO, TRAILER_US, bracketParaCubicFt, precioParaBracket } = require('../config/additionalCostsConfig');
+const { BRACKETS_MEXICO, TRAILER_US, bracketParaCubicFt, precioParaBracket, tienePrecioExplicito } = require('../config/additionalCostsConfig');
 
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
 const ASSETS_DIR = path.join(__dirname, '..', 'assets');
@@ -63,14 +63,14 @@ function calcularTabla(datos) {
 
   if (trailer.modoResumen) return calcularTablaResumen(datos, trailer);
 
-  // Para camiones con tope físico fijo (26ft): la tabla SIEMPRE muestra el rango completo
-  // desde el mínimo hasta el máximo, sin importar en qué pie esté contratado el cliente —
-  // confirmado: TODO cliente de 26ft ya paga por el camión completo, así que el "$0" aplica
-  // universalmente a cualquier punto de ese rango, no solo desde su propio contrato.
-  // Para camiones sin tope (28ft): la tabla empieza en el punto específico del cliente, ya
-  // que ahí sí se negocia una cantidad parcial.
+  // Para camiones con tope físico fijo (26ft): la tabla empieza en el pie lineal que
+  // corresponde al Destination Amount del cliente (confirmado con 2 ejemplos reales:
+  // Hartman con 600cf empieza en el pie 9, Coffeng con 1,000cf empieza en el pie 15 —
+  // ambos coinciden exactamente con floor(destinationAmount / cf-por-pie)).
+  // Para camiones sin tope (28ft): la tabla empieza en el punto específico del cliente
+  // (Contracted Linear Feet), ya que ahí sí se negocia una cantidad parcial.
   const pieLinealInicio = trailer.maxCapacidadFisica != null
-    ? trailer.pieLinealMinimoTabla
+    ? Math.floor(datos.destinationAmount / trailer.cubicFtPorPieLineal)
     : datos.contractedLinearFeet;
 
   const filas = [];
@@ -89,6 +89,7 @@ function calcularTabla(datos) {
       excedeCapacidadFisica,
       bracketLabel: bracket.label,
       bracketHasta: bracket.hasta,
+      bracketConPrecio: tienePrecioExplicito(bracket, datos.preciosMexico),
       precioTruckMX,
       total: (precioTrailerUS || 0) + precioTruckMX,
     });
@@ -115,6 +116,7 @@ function calcularTablaResumen(datos, trailer) {
       precioTrailerUS,
       bracketLabel: bracket.label,
       bracketHasta: bracket.hasta,
+      bracketConPrecio: tienePrecioExplicito(bracket, datos.preciosMexico),
       precioTruckMX,
       total: precioTrailerUS + precioTruckMX,
     });
@@ -328,7 +330,7 @@ async function generateAdditionalCosts(contractPdfPath) {
   filas.forEach((f) => {
     const grupoActual = grupos[grupos.length - 1];
     if (!grupoActual || grupoActual.bracketHasta !== f.bracketHasta) {
-      grupos.push({ bracketHasta: f.bracketHasta, bracketLabel: f.bracketLabel, precioTruckMX: f.precioTruckMX, filas: [f] });
+      grupos.push({ bracketHasta: f.bracketHasta, bracketLabel: f.bracketLabel, bracketConPrecio: f.bracketConPrecio, precioTruckMX: f.precioTruckMX, filas: [f] });
     } else {
       grupoActual.filas.push(f);
     }
@@ -377,6 +379,9 @@ async function generateAdditionalCosts(contractPdfPath) {
     });
     const filaFinGrupo = fila - 1;
 
+    // El bloque de México (imagen/etiqueta/precio) siempre se dibuja para cada bracket que
+    // toque la tabla, aunque el contrato no le haya puesto precio explícito — en ese caso
+    // se usa $0 por default (confirmado).
     const imagenInfo = IMAGEN_POR_BRACKET_HASTA[grupo.bracketHasta];
     if (imagenInfo && fs.existsSync(imagenInfo.path)) {
       const imgId = workbook.addImage({ filename: imagenInfo.path, extension: 'png' });
@@ -400,10 +405,11 @@ async function generateAdditionalCosts(contractPdfPath) {
     ws.getCell(`G${filaInicioGrupo}`).alignment = { horizontal: 'center', vertical: 'middle' };
     ws.getCell(`G${filaInicioGrupo}`).font = { size: 13 };
 
-    // Total: en camiones con tope físico fijo (26ft), el precio en EE.UU. siempre es $0, así
-    // que el Total dentro de un mismo bracket de México es idéntico en todas sus filas — se
-    // fusiona en un solo bloque igual que la columna del camión. En camiones sin tope (28ft),
-    // el precio en EE.UU. sí escala fila por fila, así que el Total se deja individual.
+    // Total: en camiones con tope físico fijo (26ft), el precio en EE.UU. siempre es $0,
+    // así que el Total dentro de un mismo bracket de México es idéntico en todas sus
+    // filas — se fusiona en un solo bloque igual que la columna del camión. En camiones
+    // sin tope (28ft), el precio en EE.UU. sí escala fila por fila, así que el Total se
+    // deja individual.
     if (trailerConfig.maxCapacidadFisica != null) {
       ws.mergeCells(`I${filaInicioGrupo}:I${filaFinGrupo}`);
       ws.getCell(`I${filaInicioGrupo}`).value = grupo.filas[0].total;
