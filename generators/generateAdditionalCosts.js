@@ -104,23 +104,50 @@ function calcularTabla(datos) {
  */
 function calcularTablaResumen(datos, trailer) {
   const filas = [];
-  // Confirmado: igual que 26ft, la tabla de 53ft siempre muestra TODOS los puntos de
-  // quiebre, sin importar en qué pie esté contratado el cliente.
-  trailer.puntosDeQuiebre.forEach((punto) => {
-    const precioTrailerUS = Math.max(0, punto.pieLineal - datos.contractedLinearFeet) * datos.precioPorPieAdicional;
-    const bracket = bracketParaCubicFt(punto.cubicFt);
-    const precioTruckMX = precioParaBracket(bracket, datos.preciosMexico);
-    filas.push({
-      pieLineal: `Up to ${punto.pieLineal}`,
-      cubicFt: `Up to ${punto.cubicFt.toLocaleString('en-US')}`,
-      precioTrailerUS,
-      bracketLabel: bracket.label,
-      bracketHasta: bracket.hasta,
-      bracketConPrecio: tienePrecioExplicito(bracket, datos.preciosMexico),
-      precioTruckMX,
-      total: precioTrailerUS + precioTruckMX,
+  // Confirmado: la tabla empieza en el primer punto de quiebre que sea >= al Destination
+  // Amount del cliente (igual que 26ft) — no siempre desde el primer punto de todos.
+  let pieLinealAnterior = 0;
+  trailer.puntosDeQuiebre
+    .filter((punto) => punto.cubicFt >= datos.destinationAmount)
+    .forEach((punto) => {
+      const precioTrailerUS = Math.max(0, punto.pieLineal - datos.contractedLinearFeet) * datos.precioPorPieAdicional;
+      const bracket = bracketParaCubicFt(punto.cubicFt);
+      const precioTruckMX = precioParaBracket(bracket, datos.preciosMexico);
+      // Cuánto "espacio" relativo representa este punto dentro del tráiler — para que,
+      // ej. "Up to 32" (que cubre del 0 al 32) se vea más grande que "Up to 47" (que solo
+      // cubre del 32 al 47), proporcional al tramo real que cada uno representa.
+      const alturaRelativa = punto.pieLineal - pieLinealAnterior;
+      pieLinealAnterior = punto.pieLineal;
+      filas.push({
+        pieLineal: `Up to ${punto.pieLineal}`,
+        cubicFt: `Up to ${punto.cubicFt.toLocaleString('en-US')}`,
+        precioTrailerUS,
+        excedeCapacidadFisica: false,
+        alturaRelativa,
+        bracketLabel: bracket.label,
+        bracketHasta: bracket.hasta,
+        bracketConPrecio: tienePrecioExplicito(bracket, datos.preciosMexico),
+        precioTruckMX,
+        total: precioTrailerUS + precioTruckMX,
+      });
     });
+
+  // Fila final "Over 48 / CAN'T USE" — confirmado que siempre se muestra, más allá de la
+  // capacidad física máxima del tráiler de 53ft.
+  const maxPunto = trailer.puntosDeQuiebre[trailer.puntosDeQuiebre.length - 1];
+  filas.push({
+    pieLineal: `Over ${maxPunto.pieLineal + 1}`,
+    cubicFt: `Over ${maxPunto.cubicFt.toLocaleString('en-US')}`,
+    precioTrailerUS: null,
+    excedeCapacidadFisica: true,
+    alturaRelativa: 1,
+    bracketLabel: "CAN'T USE",
+    bracketHasta: 'no-bracket', // no hay bracket real de México más allá del máximo
+    bracketConPrecio: false,
+    precioTruckMX: null,
+    total: null,
   });
+
   return filas;
 }
 
@@ -149,6 +176,27 @@ function ponerBordes(ws, filaInicio, filaFin, colInicio, colFin) {
  * lo que se veía "poco estético": la imagen del camión quedaba fuera del recuadro porque
  * antes el borde no incluía su columna).
  */
+/**
+ * Convierte un desplazamiento en píxeles (desde la parte de arriba de filaInicio) a la
+ * posición fraccional que ExcelJS necesita para anclar una imagen — contemplando que las
+ * filas pueden tener alturas distintas entre sí (no todas 22px), si no el cálculo se
+ * desfasa cuanto más alta sea la fila real.
+ */
+function offsetPixelesAFilaAnchor(ws, filaInicio, offsetPx) {
+  let acumulado = 0;
+  let r = filaInicio;
+  for (let i = 0; i < 500; i += 1) {
+    const alturaFila = ws.getRow(r).height || 15;
+    if (acumulado + alturaFila >= offsetPx) {
+      const fraccion = Math.max(0, (offsetPx - acumulado) / alturaFila);
+      return (r - 1) + fraccion;
+    }
+    acumulado += alturaFila;
+    r += 1;
+  }
+  return filaInicio - 1;
+}
+
 function cajaConDivisores(ws, filaInicio, filaFin, colInicio, colFin, colsDivisorDerecha = []) {
   for (let r = filaInicio; r <= filaFin; r += 1) {
     for (let c = colInicio; c <= colFin; c += 1) {
@@ -243,16 +291,15 @@ async function generateAdditionalCosts(contractPdfPath) {
   ws.getCell(`A${fila}`).alignment = { horizontal: 'center' };
   fila += 2;
 
-  // "What Your Agreement Says": el contenido varía según el tamaño de trailer, confirmado
-  // directo en cada plantilla — 28ft muestra el desglose de 3 líneas; 26ft muestra solo
-  // "Base Cost on Agreement" (el precio total del contrato, Sección 9.A); 53ft NO TIENE
-  // esta sección — pasa directo del título a la tabla principal.
-  if (datos.trailerSizeUS !== 53) {
+  // "What Your Agreement Says": el contenido varía según el tamaño de trailer — 28ft
+  // muestra el desglose de 3 líneas; 26ft y 53ft muestran solo "Base Cost on Agreement"
+  // (el precio total del contrato, Sección 9.A).
+  {
     const filaAgreementBar = fila;
     barraEncabezado(ws, `A${fila}:I${fila}`, 'What Your Agreement Says');
     fila += 1;
 
-    const resumenAgreement = datos.trailerSizeUS === 26
+    const resumenAgreement = (datos.trailerSizeUS === 26 || datos.trailerSizeUS === 53)
       ? [
           ['Base Cost on Agreement', datos.precioTotalContrato, '"$"#,##0'],
         ]
@@ -336,6 +383,39 @@ async function generateAdditionalCosts(contractPdfPath) {
     }
   });
 
+  // Alturas de fila: por default reparte el extra de altura equitativamente dentro de cada
+  // grupo. Para 53ft (modoResumen), en vez de eso se calcula proporcional al tramo real que
+  // representa cada punto ("Up to 32" cubre más rango que "Up to 47", así que se ve más
+  // grande) — agrupando primero los brackets consecutivos que comparten la MISMA imagen
+  // (ej. las 2 secciones de "53-Foot Trailer") para reservar el alto conjunto entre ellos.
+  if (trailerConfig.modoResumen) {
+    const familias = [];
+    grupos.forEach((grupo) => {
+      const imgPath = IMAGEN_POR_BRACKET_HASTA[grupo.bracketHasta]?.path || null;
+      const anterior = familias[familias.length - 1];
+      if (anterior && anterior.imgPath === imgPath && imgPath != null) {
+        anterior.grupos.push(grupo);
+      } else {
+        familias.push({ imgPath, grupos: [grupo] });
+      }
+    });
+    familias.forEach(({ imgPath, grupos: gruposFamilia }) => {
+      const todasLasFilas = gruposFamilia.flatMap((g) => g.filas);
+      const ratio = imgPath ? IMAGEN_POR_BRACKET_HASTA[gruposFamilia[0].bracketHasta].ratio : null;
+      const alturaIcono = ratio ? Math.round(ANCHO_ICONO / ratio) : 0;
+      const totalSpan = todasLasFilas.reduce((s, f) => s + (f.alturaRelativa || 1), 0);
+      // El alto total de la familia se reparte PROPORCIONAL al tramo real que representa
+      // cada fila (no solo el "extra" sobre un mínimo) — si no, con solo 2 filas casi
+      // siempre el mínimo ya alcanza y la proporción nunca se nota visualmente.
+      const alturaPorProporcion = totalSpan * 6; // px por cada pie lineal de tramo
+      const alturaMinimaTotal = Math.max(alturaIcono + 30, alturaPorProporcion, todasLasFilas.length * 22);
+      todasLasFilas.forEach((f) => {
+        const peso = (f.alturaRelativa || 1) / totalSpan;
+        f._alturaFila = Math.max(22, alturaMinimaTotal * peso);
+      });
+    });
+  }
+
   grupos.forEach((grupo) => {
     const filaInicioGrupo = fila;
     const alturaIconoEstimeda = Math.round(ANCHO_ICONO / (IMAGEN_POR_BRACKET_HASTA[grupo.bracketHasta]?.ratio || 2));
@@ -365,8 +445,9 @@ async function generateAdditionalCosts(contractPdfPath) {
           ws.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_CLARO } };
         });
       }
-      // El extra de altura se reparte entre las filas del bloque para que se vea proporcional.
-      ws.getRow(fila).height = alturaPorFilaNormal + alturaExtra / filasEnGrupo;
+      // El extra de altura se reparte entre las filas del bloque para que se vea proporcional
+      // (o, para 53ft, se usa la altura ya calculada arriba, proporcional al tramo real).
+      ws.getRow(fila).height = f._alturaFila != null ? f._alturaFila : (alturaPorFilaNormal + alturaExtra / filasEnGrupo);
       // Línea delgada entre cada fila individual (además de la raya de color) — así se ve
       // igual que la referencia, no solo un bloque de color liso.
       if (idx < grupo.filas.length - 1 || grupos.indexOf(grupo) < grupos.length - 1 || f !== filas[filas.length - 1]) {
@@ -378,44 +459,35 @@ async function generateAdditionalCosts(contractPdfPath) {
       fila += 1;
     });
     const filaFinGrupo = fila - 1;
+    const esFilaCantUse = grupo.bracketHasta === 'no-bracket';
+    grupo._filaInicioGrupo = filaInicioGrupo;
+    grupo._filaFinGrupo = filaFinGrupo;
+    grupo._esFilaCantUse = esFilaCantUse;
 
-    // El bloque de México (imagen/etiqueta/precio) siempre se dibuja para cada bracket que
-    // toque la tabla, aunque el contrato no le haya puesto precio explícito — en ese caso
-    // se usa $0 por default (confirmado).
-    const imagenInfo = IMAGEN_POR_BRACKET_HASTA[grupo.bracketHasta];
-    if (imagenInfo && fs.existsSync(imagenInfo.path)) {
-      const imgId = workbook.addImage({ filename: imagenInfo.path, extension: 'png' });
-      const alto = Math.round(ANCHO_ICONO / imagenInfo.ratio);
-      let alturaBloquePx = 0;
-      for (let r = filaInicioGrupo; r <= filaFinGrupo; r += 1) alturaBloquePx += ws.getRow(r).height;
-      const offsetCentradoFilas = Math.max(0, (alturaBloquePx - alto) / 2 / alturaPorFilaNormal);
-      const offsetHorizontalCol = Math.max(0, (15 - ANCHO_ICONO / 7) / 2 / 15); // centrar en columna E (ancho 15)
-      ws.addImage(imgId, { tl: { col: 4 + offsetHorizontalCol, row: filaInicioGrupo - 1 + offsetCentradoFilas }, ext: { width: ANCHO_ICONO, height: alto } });
+    if (!esFilaCantUse) {
+      ws.mergeCells(`G${filaInicioGrupo}:G${filaFinGrupo}`);
+      ws.getCell(`G${filaInicioGrupo}`).value = grupo.precioTruckMX;
+      ws.getCell(`G${filaInicioGrupo}`).numFmt = '$#,##0';
+      ws.getCell(`G${filaInicioGrupo}`).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(`G${filaInicioGrupo}`).font = { size: 13 };
     }
 
-    ws.mergeCells(`E${filaInicioGrupo}:E${filaFinGrupo}`);
-    ws.mergeCells(`F${filaInicioGrupo}:F${filaFinGrupo}`);
-    ws.getCell(`F${filaInicioGrupo}`).value = grupo.bracketLabel;
-    ws.getCell(`F${filaInicioGrupo}`).alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' };
-    ws.getCell(`F${filaInicioGrupo}`).font = { size: 11 };
-
-    ws.mergeCells(`G${filaInicioGrupo}:G${filaFinGrupo}`);
-    ws.getCell(`G${filaInicioGrupo}`).value = grupo.precioTruckMX;
-    ws.getCell(`G${filaInicioGrupo}`).numFmt = '$#,##0';
-    ws.getCell(`G${filaInicioGrupo}`).alignment = { horizontal: 'center', vertical: 'middle' };
-    ws.getCell(`G${filaInicioGrupo}`).font = { size: 13 };
-
-    // Total: en camiones con tope físico fijo (26ft), el precio en EE.UU. siempre es $0,
-    // así que el Total dentro de un mismo bracket de México es idéntico en todas sus
+    // Total: en camiones con tope físico fijo (26ft/53ft), el precio en EE.UU. siempre es
+    // $0, así que el Total dentro de un mismo bracket de México es idéntico en todas sus
     // filas — se fusiona en un solo bloque igual que la columna del camión. En camiones
     // sin tope (28ft), el precio en EE.UU. sí escala fila por fila, así que el Total se
     // deja individual.
     if (trailerConfig.maxCapacidadFisica != null) {
       ws.mergeCells(`I${filaInicioGrupo}:I${filaFinGrupo}`);
-      ws.getCell(`I${filaInicioGrupo}`).value = grupo.filas[0].total;
-      ws.getCell(`I${filaInicioGrupo}`).numFmt = FORMATO_CONTABILIDAD;
+      if (esFilaCantUse) {
+        ws.getCell(`I${filaInicioGrupo}`).value = "CAN'T USE";
+        ws.getCell(`I${filaInicioGrupo}`).font = { size: 12, bold: true, color: { argb: 'FFFF0000' } };
+      } else {
+        ws.getCell(`I${filaInicioGrupo}`).value = grupo.filas[0].total;
+        ws.getCell(`I${filaInicioGrupo}`).numFmt = FORMATO_CONTABILIDAD;
+        ws.getCell(`I${filaInicioGrupo}`).font = { size: 11 };
+      }
       ws.getCell(`I${filaInicioGrupo}`).alignment = { horizontal: 'center', vertical: 'middle' };
-      ws.getCell(`I${filaInicioGrupo}`).font = { size: 11 };
       if (grupos.indexOf(grupo) % 2 === 1) {
         ws.getCell(`I${filaInicioGrupo}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_CLARO } };
       }
@@ -435,6 +507,56 @@ async function generateAdditionalCosts(contractPdfPath) {
     if (grupos.indexOf(grupo) < grupos.length - 1) {
       divisoresEntreBloques.push(filaFinGrupo);
     }
+  });
+
+  // Imagen + etiqueta (columnas E/F): se dibuja UNA sola vez por "familia" de brackets
+  // consecutivos que comparten la misma imagen (ej. "53-Foot Trailer" cubriendo tanto "Up
+  // to 32" como "Up to 47"), en vez de repetir el mismo camión dos veces — centrada en todo
+  // el alto combinado de esa familia.
+  const familiasImagen = [];
+  grupos.forEach((grupo) => {
+    const imgPath = IMAGEN_POR_BRACKET_HASTA[grupo.bracketHasta]?.path || null;
+    const esFilaCantUse = grupo._esFilaCantUse;
+    const anterior = familiasImagen[familiasImagen.length - 1];
+    if (!esFilaCantUse && anterior && anterior.imgPath === imgPath && imgPath != null) {
+      anterior.grupos.push(grupo);
+    } else {
+      familiasImagen.push({ imgPath, esFilaCantUse, grupos: [grupo] });
+    }
+  });
+  familiasImagen.forEach(({ imgPath, esFilaCantUse, grupos: gruposFamilia }) => {
+    const filaInicioFamilia = gruposFamilia[0]._filaInicioGrupo;
+    const filaFinFamilia = gruposFamilia[gruposFamilia.length - 1]._filaFinGrupo;
+    const esMultiple = gruposFamilia.length > 1;
+
+    if (!esFilaCantUse && imgPath && fs.existsSync(imgPath)) {
+      const ratio = IMAGEN_POR_BRACKET_HASTA[gruposFamilia[0].bracketHasta].ratio;
+      const imgId = workbook.addImage({ filename: imgPath, extension: 'png' });
+      const alto = Math.round(ANCHO_ICONO / ratio);
+      let alturaBloquePx = 0;
+      for (let r = filaInicioFamilia; r <= filaFinFamilia; r += 1) alturaBloquePx += ws.getRow(r).height;
+      const offsetPx = Math.max(0, (alturaBloquePx - alto) / 2);
+      const filaAnchor = offsetPixelesAFilaAnchor(ws, filaInicioFamilia, offsetPx);
+      const offsetHorizontalCol = Math.max(0, (15 - ANCHO_ICONO / 7) / 2 / 15);
+      ws.addImage(imgId, { tl: { col: 4 + offsetHorizontalCol, row: filaAnchor }, ext: { width: ANCHO_ICONO, height: alto } });
+    }
+
+    ws.mergeCells(`E${filaInicioFamilia}:E${filaFinFamilia}`);
+    if (esFilaCantUse) {
+      ws.mergeCells(`F${filaInicioFamilia}:G${filaFinFamilia}`);
+    } else {
+      ws.mergeCells(`F${filaInicioFamilia}:F${filaFinFamilia}`);
+    }
+    // Cuando la familia abarca más de un bracket (misma imagen, ej. 53ft), se usa la
+    // etiqueta corta sin el rango de pies cúbicos, ya que ese rango varía entre los
+    // brackets que comparte — el precio (columna G) sigue mostrando el valor correcto de
+    // cada uno por separado.
+    const etiqueta = esMultiple ? gruposFamilia[0].bracketLabel.split('\n')[0] : gruposFamilia[0].bracketLabel;
+    ws.getCell(`F${filaInicioFamilia}`).value = etiqueta;
+    ws.getCell(`F${filaInicioFamilia}`).alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' };
+    ws.getCell(`F${filaInicioFamilia}`).font = esFilaCantUse
+      ? { size: 14, bold: true, color: { argb: 'FFFF0000' } }
+      : { size: 11 };
   });
 
   // "+" y "=" grandes, centrados verticalmente en toda la altura de la tabla (una sola vez,
@@ -510,7 +632,8 @@ async function generateAdditionalCosts(contractPdfPath) {
   ws.getCell(`A${fila}`).value = 'Date';
 
   if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
-  const nombreBase = `Understanding Additional Costs - ${datos.clientName}`;
+  const fechaGeneracion = new Date().toLocaleDateString('en-US').replace(/\//g, '-');
+  const nombreBase = `${datos.clientName} - Additional Cost for Larger Shipments - ${fechaGeneracion}`;
   const xlsxPath = path.join(OUTPUT_DIR, `${nombreBase}.xlsx`);
   await workbook.xlsx.writeFile(xlsxPath);
 
