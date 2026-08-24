@@ -28,14 +28,14 @@ const TRAILER_US = {
   28: {
     cubicFtPorPieLineal: 72,
     maxPiesLineales: 28,
-    labelGrupo: '28-Foot Trailer in the US',
-    labelPrecio: 'Additional Price for Trailer in the US',
+    labelGrupo: '28-Foot Trailer',
+    labelPrecio: 'Additional Price for Trailer',
   },
   26: {
     cubicFtPorPieLineal: 64,
     maxPiesLineales: 26, // hasta dónde se muestra la tabla (aunque ya no se pueda usar)
-    labelGrupo: '26-Foot Box Truck in the US',
-    labelPrecio: 'Additional Price for Truck in the US',
+    labelGrupo: '26-Foot Box Truck',
+    labelPrecio: 'Additional Price for Truck',
     // Confirmado: TODO camión de 26ft topa físicamente aquí, sin importar el cliente —
     // no es un dato que varíe por contrato.
     maxCapacidadFisica: 21, // pies lineales
@@ -52,8 +52,8 @@ const TRAILER_US = {
   53: {
     modoResumen: true,
     maxPiesLineales: 47,
-    labelGrupo: '53-Foot Trailer in the US',
-    labelPrecio: 'Additional Price for Trailer in the US',
+    labelGrupo: '53-Foot Trailer',
+    labelPrecio: 'Additional Price for Trailer',
     // Confirmado: igual que 26ft, la tabla empieza en el punto que corresponde al
     // Destination Amount del cliente (no siempre desde el primer punto).
     maxCapacidadFisica: 47, // pies lineales — más allá de esto, "CAN'T USE"
