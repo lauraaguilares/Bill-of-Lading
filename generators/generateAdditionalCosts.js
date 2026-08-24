@@ -42,11 +42,13 @@ const IMAGEN_POR_BRACKET_HASTA = {
   3400: { path: path.join(ASSETS_DIR, 'trucks', 'trailer53.png'), ratio: 520 / 102 }, // mismo tráiler, bracket más alto
 };
 
-const TEXTO_INTRO = `At Best Mexico Movers, we want to make sure you understand your costs if your shipment exceeds the amounts in your agreement. That's why we made the chart on the next page.
+function generarTextoIntro(paisOrigenLabel) {
+  return `At Best Mexico Movers, we want to make sure you understand your costs if your shipment exceeds the amounts in your agreement. That's why we made the chart on the next page.
 
-Your precious household goods will be transported via two separate trucks; one in the US and one in Mexico. The chart on the next page will explain how your costs change if you bring more than in our agreement. After looking at this chart, you may decide to bring only what we originally contracted for (in which case your price will not change at all), or you may decide to bring more. The choice is yours. If you are considering bringing more, this chart will help you to see exactly how the size of your shipment will affect your price.
+Your precious household goods will be transported via two separate trucks; one in ${paisOrigenLabel} and one in Mexico. The chart on the next page will explain how your costs change if you bring more than in our agreement. After looking at this chart, you may decide to bring only what we originally contracted for (in which case your price will not change at all), or you may decide to bring more. The choice is yours. If you are considering bringing more, this chart will help you to see exactly how the size of your shipment will affect your price.
 
 It is very important to us that we explain this well. If you have any questions whatsoever, please ask your Personal Moving Assistant. Once you do understand it, please sign on the second page at the bottom and return to your PMA.`;
+}
 
 /**
  * Calcula la tabla completa fila por fila, desde los pies lineales contratados por el
@@ -232,12 +234,17 @@ function ponerBordesTabla(ws, filaInicio, filaFin) {
 async function generateAdditionalCosts(contractPdfPath) {
   const datos = await parsearContrato(contractPdfPath);
 
-  if (datos.paisOrigen !== 'US' || datos.paisDestino !== 'MX') {
+  const esSouthbound = datos.paisOrigen === 'US' && datos.paisDestino === 'MX';
+  const esBonded = datos.paisOrigen === 'CA' && datos.paisDestino === 'MX';
+  if (!esSouthbound && !esBonded) {
     throw new Error(
-      `Este generador por ahora solo soporta Southbound (origen EE.UU. → destino México). ` +
-      `Este contrato detectó origen=${datos.paisOrigen}, destino=${datos.paisDestino}.`
+      `Este generador por ahora solo soporta Southbound (EE.UU. → México) y Bonded (Canadá → ` +
+      `México). Este contrato detectó origen=${datos.paisOrigen}, destino=${datos.paisDestino}.`
     );
   }
+  // Confirmado con la plantilla real: Bonded dice "in Canada" en vez de "in the US" en
+  // todos los encabezados y en el texto introductorio — es la única diferencia real.
+  const paisOrigenLabel = esBonded ? 'Canada' : 'the US';
 
   const filas = calcularTabla(datos);
   const trailerConfig = TRAILER_US[datos.trailerSizeUS];
@@ -277,7 +284,7 @@ async function generateAdditionalCosts(contractPdfPath) {
   fila += 2;
 
   ws.mergeCells(`A${fila}:I${fila + 4}`);
-  ws.getCell(`A${fila}`).value = TEXTO_INTRO;
+  ws.getCell(`A${fila}`).value = generarTextoIntro(paisOrigenLabel);
   ws.getCell(`A${fila}`).alignment = { wrapText: true, vertical: 'top' };
   ws.getRow(fila).height = 140;
   fila += 6;
@@ -325,7 +332,7 @@ async function generateAdditionalCosts(contractPdfPath) {
 
   const filaGrupoHeader = fila;
   ws.mergeCells(`A${fila}:C${fila}`);
-  ws.getCell(`A${fila}`).value = TRAILER_US[datos.trailerSizeUS].labelGrupo;
+  ws.getCell(`A${fila}`).value = `${TRAILER_US[datos.trailerSizeUS].labelGrupo} in ${paisOrigenLabel}`;
   ws.mergeCells(`E${fila}:G${fila}`);
   ws.getCell(`E${fila}`).value = 'Additional Costs for Larger Shipments in Mexico';
   [`A${fila}`, `E${fila}`].forEach((c) => {
@@ -354,7 +361,7 @@ async function generateAdditionalCosts(contractPdfPath) {
   ws.mergeCells(`E${fila}:F${fila}`);
   ws.getCell(`E${fila}`).value = 'Type of Truck Needed in Mexico';
 
-  const subEncabezados = { A: 'Linear Feet You Use in the US', B: 'Cubic Feet You Use in the US', C: TRAILER_US[datos.trailerSizeUS].labelPrecio, G: 'Additional Price for Truck in Mexico' };
+  const subEncabezados = { A: `Linear Feet You Use in ${paisOrigenLabel}`, B: `Cubic Feet You Use in ${paisOrigenLabel}`, C: `${TRAILER_US[datos.trailerSizeUS].labelPrecio} in ${paisOrigenLabel}`, G: 'Additional Price for Truck in Mexico' };
   Object.entries(subEncabezados).forEach(([col, texto]) => {
     ws.getCell(`${col}${fila}`).value = texto;
   });
