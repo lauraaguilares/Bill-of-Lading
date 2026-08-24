@@ -54,6 +54,9 @@ const TRAILER_US = {
     maxPiesLineales: 47,
     labelGrupo: '53-Foot Trailer in the US',
     labelPrecio: 'Additional Price for Trailer in the US',
+    // Confirmado: igual que 26ft, la tabla empieza en el punto que corresponde al
+    // Destination Amount del cliente (no siempre desde el primer punto).
+    maxCapacidadFisica: 47, // pies lineales — más allá de esto, "CAN'T USE"
     puntosDeQuiebre: [
       { pieLineal: 8, cubicFt: 600 },
       { pieLineal: 14, cubicFt: 1000 },
