@@ -486,10 +486,7 @@ async function generateAdditionalCosts(contractPdfPath) {
     // deja individual.
     if (trailerConfig.maxCapacidadFisica != null) {
       ws.mergeCells(`I${filaInicioGrupo}:I${filaFinGrupo}`);
-      if (esFilaCantUse) {
-        ws.getCell(`I${filaInicioGrupo}`).value = "CAN'T USE";
-        ws.getCell(`I${filaInicioGrupo}`).font = { size: 12, bold: true, color: { argb: 'FFFF0000' } };
-      } else {
+      if (!esFilaCantUse) {
         ws.getCell(`I${filaInicioGrupo}`).value = grupo.filas[0].total;
         ws.getCell(`I${filaInicioGrupo}`).numFmt = FORMATO_CONTABILIDAD;
         ws.getCell(`I${filaInicioGrupo}`).font = { size: 11 };
@@ -553,17 +550,16 @@ async function generateAdditionalCosts(contractPdfPath) {
       ws.mergeCells(`F${filaInicioFamilia}:G${filaFinFamilia}`);
     } else {
       ws.mergeCells(`F${filaInicioFamilia}:F${filaFinFamilia}`);
+      // Cuando la familia abarca más de un bracket (misma imagen, ej. 53ft), se usa la
+      // etiqueta corta sin el rango de pies cúbicos, ya que ese rango varía entre los
+      // brackets que comparte — el precio (columna G) sigue mostrando el valor correcto de
+      // cada uno por separado. La fila "CAN'T USE" se deja en blanco (ya no se repite el
+      // texto en esta tabla, solo en la primera).
+      const etiqueta = esMultiple ? gruposFamilia[0].bracketLabel.split('\n')[0] : gruposFamilia[0].bracketLabel;
+      ws.getCell(`F${filaInicioFamilia}`).value = etiqueta;
+      ws.getCell(`F${filaInicioFamilia}`).alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' };
+      ws.getCell(`F${filaInicioFamilia}`).font = { size: 11 };
     }
-    // Cuando la familia abarca más de un bracket (misma imagen, ej. 53ft), se usa la
-    // etiqueta corta sin el rango de pies cúbicos, ya que ese rango varía entre los
-    // brackets que comparte — el precio (columna G) sigue mostrando el valor correcto de
-    // cada uno por separado.
-    const etiqueta = esMultiple ? gruposFamilia[0].bracketLabel.split('\n')[0] : gruposFamilia[0].bracketLabel;
-    ws.getCell(`F${filaInicioFamilia}`).value = etiqueta;
-    ws.getCell(`F${filaInicioFamilia}`).alignment = { wrapText: true, vertical: 'middle', horizontal: 'center' };
-    ws.getCell(`F${filaInicioFamilia}`).font = esFilaCantUse
-      ? { size: 14, bold: true, color: { argb: 'FFFF0000' } }
-      : { size: 11 };
   });
 
   // "+" y "=" grandes, centrados verticalmente en toda la altura de la tabla (una sola vez,
