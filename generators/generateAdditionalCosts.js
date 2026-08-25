@@ -236,12 +236,19 @@ async function generateAdditionalCosts(contractPdfPath) {
 
   const esSouthbound = datos.paisOrigen === 'US' && datos.paisDestino === 'MX';
   const esBonded = datos.paisOrigen === 'CA' && datos.paisDestino === 'MX';
-  if (!esSouthbound && !esBonded) {
+  const esNorthbound = datos.esNorthbound === true;
+  if (!esSouthbound && !esBonded && !esNorthbound) {
     throw new Error(
-      `Este generador por ahora solo soporta Southbound (EE.UU. → México) y Bonded (Canadá → ` +
-      `México). Este contrato detectó origen=${datos.paisOrigen}, destino=${datos.paisDestino}.`
+      `Este generador por ahora solo soporta Southbound (EE.UU. → México), Bonded (Canadá → ` +
+      `México) y Northbound-28ft (México → EE.UU./Canadá). Este contrato detectó origen=` +
+      `${datos.paisOrigen}, destino=${datos.paisDestino}.`
     );
   }
+
+  if (esNorthbound) {
+    return generarNorthbound28ft(datos);
+  }
+
   // Confirmado con la plantilla real: Bonded dice "in Canada" en vez de "in the US" en
   // todos los encabezados y en el texto introductorio — es la única diferencia real.
   const paisOrigenLabel = esBonded ? 'Canada' : 'the US';
@@ -618,6 +625,254 @@ async function generateAdditionalCosts(contractPdfPath) {
 
   ponerBordesTabla(ws, filaGrupoHeader, fila - 1);
   divisoresEntreBloques.forEach((filaDivisor) => divisorHorizontal(ws, filaDivisor, 5, 7));
+  fila += 2;
+
+  ws.mergeCells(`A${fila}:I${fila}`);
+  ws.getCell(`A${fila}`).value = 'By signing this document, I am indicating that I have had the opportunity to ask questions and that I understand potential additional charges.';
+  ws.getCell(`A${fila}`).alignment = { wrapText: true };
+  ws.getRow(fila).height = 30;
+  fila += 3;
+
+  ws.getCell(`A${fila}`).value = '_______________________';
+  fila += 1;
+  ws.getCell(`A${fila}`).value = 'Signature';
+  fila += 2;
+  ws.getCell(`A${fila}`).value = '_______________________';
+  fila += 1;
+  ws.getCell(`A${fila}`).value = 'Date';
+
+  if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
+  const fechaGeneracion = new Date().toLocaleDateString('en-US').replace(/\//g, '-');
+  const nombreBase = `${datos.clientName} - Additional Cost for Larger Shipments - ${fechaGeneracion}`;
+  const xlsxPath = path.join(OUTPUT_DIR, `${nombreBase}.xlsx`);
+  await workbook.xlsx.writeFile(xlsxPath);
+
+  return { xlsxPath, datos, filas };
+}
+
+function generarTextoIntroNorthbound(paisDestinoLabel) {
+  return `At Best Mexico Movers, we want to make sure you understand your costs if your shipment exceeds the amounts in your agreement. That's why we made the chart on the next page.
+
+Your precious household goods will be transported via two separate trucks; one in Mexico and one in ${paisDestinoLabel}. The chart on the next page will explain how your costs change if you bring more than in our agreement. After looking at this chart, you may decide to bring only what we originally contracted for (in which case your price will not change at all), or you may decide to bring more. The choice is yours. If you are considering bringing more, this chart will help you to see exactly how the size of your shipment will affect your price.
+
+It is very important to us that we explain this well. If you have any questions whatsoever, please ask your Personal Moving Assistant. Once you do understand it, please sign on the second page at the bottom and return to your PMA.`;
+}
+
+/**
+ * Northbound (México → EE.UU./Canadá), solo caso 28ft en destino (confirmado con Laura —
+ * es el único caso Northbound necesario por ahora). Layout ESPEJADO respecto a Southbound:
+ * columnas A-C = México (origen, sin brackets — camión completo incluido, $0 fijo,
+ * confirmado con Laura), columnas E-G = tráiler de 28ft en destino con desglose pie por
+ * pie (misma lógica de cálculo que Southbound-28ft, pero usando los datos de la Sección
+ * 4.E en vez de 4.B, porque el tráiler con desglose está en Destino, no en Origen).
+ */
+async function generarNorthbound28ft(datos) {
+  const paisDestinoLabel = datos.paisDestino === 'CA' ? 'Canada' : 'the US';
+  const trailerConfig = TRAILER_US[28];
+
+  // Tabla pie por pie, idéntica en cálculo a Southbound-28ft (la fórmula no cambia, solo
+  // qué lado del contrato representa) — sin bracket de México por fila, porque el camión
+  // de origen no depende del tamaño del envío.
+  const filas = [];
+  for (let pieLineal = datos.contractedLinearFeet; pieLineal <= trailerConfig.maxPiesLineales; pieLineal += 1) {
+    const cubicFt = pieLineal * trailerConfig.cubicFtPorPieLineal;
+    const precioTrailer = (pieLineal - datos.contractedLinearFeet) * datos.precioPorPieAdicional;
+    filas.push({ pieLineal, cubicFt, precioTrailer, total: precioTrailer });
+  }
+
+  // Imagen del camión de México (origen): large.png por default, trailer53.png solo si el
+  // contrato menciona explícitamente un tráiler de 53ft en la Sección 4.B — confirmado con
+  // Laura.
+  const imagenMexico = datos.origenTrailerEs53
+    ? IMAGEN_POR_BRACKET_HASTA[2400]
+    : IMAGEN_POR_BRACKET_HASTA[1450];
+
+  const workbook = new ExcelJS.Workbook();
+  const ws = workbook.addWorksheet('Costos Adicionales');
+  ws.pageSetup = {
+    orientation: 'portrait',
+    fitToPage: true,
+    fitToWidth: 1,
+    fitToHeight: 0,
+    horizontalCentered: true,
+    verticalCentered: false,
+    margins: { left: 0.6, right: 0.6, top: 0.4, bottom: 0.4, header: 0.2, footer: 0.2 },
+  };
+  ws.headerFooter.oddFooter = '&8&KFF0000Confidential and Proprietary.  Do not use without prior written consent.';
+
+  ws.getColumn('A').width = 11;
+  ws.getColumn('B').width = 12;
+  ws.getColumn('C').width = 13;
+  ws.getColumn('D').width = 4;
+  ws.getColumn('E').width = 15;
+  ws.getColumn('F').width = 20;
+  ws.getColumn('G').width = 14;
+  ws.getColumn('H').width = 4;
+  ws.getColumn('I').width = 13;
+
+  const logoId = workbook.addImage({ filename: path.join(ASSETS_DIR, 'logo', 'bmm-logo.png'), extension: 'png' });
+  ws.addImage(logoId, { tl: { col: 2.3, row: 0.2 }, ext: { width: 260, height: 80 } });
+  ws.getRow(1).height = 70;
+
+  let fila = 4;
+  ws.mergeCells(`A${fila}:I${fila}`);
+  ws.getCell(`A${fila}`).value = 'Understanding Additional Costs for Larger Shipments';
+  ws.getCell(`A${fila}`).font = { bold: true, size: 15 };
+  ws.getCell(`A${fila}`).alignment = { horizontal: 'center' };
+  fila += 2;
+
+  ws.mergeCells(`A${fila}:I${fila + 4}`);
+  ws.getCell(`A${fila}`).value = generarTextoIntroNorthbound(paisDestinoLabel);
+  ws.getCell(`A${fila}`).alignment = { wrapText: true, vertical: 'top' };
+  ws.getRow(fila).height = 140;
+  fila += 6;
+
+  ws.getRow(fila - 1).addPageBreak();
+  fila += 1;
+
+  ws.mergeCells(`A${fila}:I${fila}`);
+  ws.getCell(`A${fila}`).value = 'Calculating the Price for Your Shipment if You Bring More';
+  ws.getCell(`A${fila}`).font = { bold: true, size: 16 };
+  ws.getCell(`A${fila}`).alignment = { horizontal: 'center' };
+  fila += 2;
+
+  // "What Your Agreement Says": mismo formato de 3 líneas que Southbound-28ft, pero usando
+  // Destination Amount (no Origin Amount) — en Northbound, el Destination Amount es lo que
+  // corresponde a la capacidad del tráiler de 28ft en destino (confirmado: 12 pies x 72 cf
+  // = 864 cf, que coincide exactamente con el Destination Amount del contrato de Mattman).
+  {
+    const filaAgreementBar = fila;
+    barraEncabezado(ws, `A${fila}:I${fila}`, 'What Your Agreement Says');
+    fila += 1;
+
+    const resumenAgreement = [
+      [`How Many Linear Feet in ${paisDestinoLabel} with No Additional Cost`, datos.contractedLinearFeet, '#,##0'],
+      [`How Many Cubic Feet in ${paisDestinoLabel} with No Additional Cost`, datos.destinationAmount, '#,##0'],
+      [`Price for Each Additional Linear Foot in ${paisDestinoLabel} if You Use More Than in the Agreement`, datos.precioPorPieAdicional, '"$"#,##0'],
+    ];
+    resumenAgreement.forEach(([label, valor, formato]) => {
+      ws.mergeCells(`A${fila}:G${fila}`);
+      ws.getCell(`A${fila}`).value = label;
+      ws.getCell(`A${fila}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_MUY_CLARO } };
+      ws.mergeCells(`H${fila}:I${fila}`);
+      ws.getCell(`H${fila}`).value = valor;
+      ws.getCell(`H${fila}`).numFmt = formato;
+      ws.getCell(`H${fila}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_MUY_CLARO } };
+      ws.getCell(`H${fila}`).alignment = { horizontal: 'right' };
+      fila += 1;
+    });
+    ponerBordes(ws, filaAgreementBar, fila - 1, 1, 9);
+    fila += 2;
+  }
+
+  const filaGrupoHeader = fila;
+  ws.mergeCells(`A${fila}:C${fila}`);
+  ws.getCell(`A${fila}`).value = 'Additional Costs for Larger Shipments in Mexico';
+  ws.mergeCells(`E${fila}:G${fila}`);
+  ws.getCell(`E${fila}`).value = `${trailerConfig.labelGrupo} in ${paisDestinoLabel}`;
+  [`A${fila}`, `E${fila}`].forEach((c) => {
+    ws.getCell(c).font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+    ws.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_OSCURO } };
+    ws.getCell(c).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, indent: 1 };
+  });
+  ws.getRow(fila).height = 46;
+  fila += 1;
+
+  const filaSubEncabezado = fila;
+
+  ws.mergeCells(`I${filaGrupoHeader}:I${filaSubEncabezado}`);
+  ws.getCell(`I${filaGrupoHeader}`).value = 'Total Additional Price';
+  ws.getCell(`I${filaGrupoHeader}`).font = { bold: true, size: 14, color: { argb: 'FFFFFFFF' } };
+  ws.getCell(`I${filaGrupoHeader}`).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_OSCURO } };
+  ws.getCell(`I${filaGrupoHeader}`).alignment = { horizontal: 'center', vertical: 'middle', wrapText: true, indent: 1 };
+
+  ws.mergeCells(`A${fila}:B${fila}`);
+  ws.getCell(`A${fila}`).value = 'Type of Truck Used in Mexico';
+
+  const subEncabezados = {
+    C: 'Additional Price for Truck in Mexico',
+    E: `Linear Feet You Use in ${paisDestinoLabel}`,
+    F: `Cubic Feet You Use in ${paisDestinoLabel}`,
+    G: `${trailerConfig.labelPrecio} in ${paisDestinoLabel}`,
+  };
+  Object.entries(subEncabezados).forEach(([col, texto]) => {
+    ws.getCell(`${col}${fila}`).value = texto;
+  });
+  [`A${fila}`, `C${fila}`, `E${fila}`, `F${fila}`, `G${fila}`].forEach((c) => {
+    const cell = ws.getCell(c);
+    cell.font = { bold: true, size: 11, color: { argb: 'FFFFFFFF' } };
+    cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_MEDIO } };
+    cell.alignment = { wrapText: true, vertical: 'middle', horizontal: 'center', indent: 1 };
+  });
+  ws.getRow(fila).height = 55;
+  fila += 1;
+
+  const filaInicioTabla = fila;
+
+  filas.forEach((f, idx) => {
+    ws.getCell(`E${fila}`).value = f.pieLineal;
+    ws.getCell(`F${fila}`).value = f.cubicFt;
+    ws.getCell(`F${fila}`).numFmt = '#,##0';
+    ws.getCell(`G${fila}`).value = f.precioTrailer;
+    ws.getCell(`G${fila}`).numFmt = FORMATO_CONTABILIDAD;
+    [`E${fila}`, `F${fila}`, `G${fila}`].forEach((c) => {
+      ws.getCell(c).alignment = { horizontal: 'center', vertical: 'middle' };
+      ws.getCell(c).font = { size: 11 };
+    });
+
+    ws.getCell(`I${fila}`).value = f.total;
+    ws.getCell(`I${fila}`).numFmt = FORMATO_CONTABILIDAD;
+    ws.getCell(`I${fila}`).alignment = { horizontal: 'center', vertical: 'middle' };
+    ws.getCell(`I${fila}`).font = { size: 11 };
+
+    if (fila % 2 === 0) {
+      [`E${fila}`, `F${fila}`, `G${fila}`, `I${fila}`].forEach((c) => {
+        ws.getCell(c).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: AZUL_CLARO } };
+      });
+    }
+    ws.getRow(fila).height = 22;
+    if (idx < filas.length - 1) {
+      [`E${fila}`, `F${fila}`, `G${fila}`].forEach((c) => {
+        const actual = ws.getCell(c).border || {};
+        ws.getCell(c).border = { ...actual, bottom: { style: 'thin', color: { argb: 'FFBDD7EE' } } };
+      });
+    }
+    fila += 1;
+  });
+  const filaFinTabla = fila - 1;
+
+  // Bloque de México (A:B imagen + C "$0"): UN solo bloque fusionado abarcando toda la
+  // altura de la tabla — sin desglose por fila, porque el camión completo está incluido sin
+  // cargo adicional sin importar cuánto traiga el cliente (confirmado con Laura).
+  ws.mergeCells(`A${filaInicioTabla}:B${filaFinTabla}`);
+  ws.mergeCells(`C${filaInicioTabla}:C${filaFinTabla}`);
+  ws.getCell(`C${filaInicioTabla}`).value = 0;
+  ws.getCell(`C${filaInicioTabla}`).numFmt = FORMATO_CONTABILIDAD;
+  ws.getCell(`C${filaInicioTabla}`).font = { size: 13 };
+  ws.getCell(`C${filaInicioTabla}`).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  if (imagenMexico && fs.existsSync(imagenMexico.path)) {
+    const imgId = workbook.addImage({ filename: imagenMexico.path, extension: 'png' });
+    const alto = Math.round(ANCHO_ICONO / imagenMexico.ratio);
+    let alturaBloquePx = 0;
+    for (let r = filaInicioTabla; r <= filaFinTabla; r += 1) alturaBloquePx += ws.getRow(r).height;
+    const offsetPx = Math.max(0, (alturaBloquePx - alto) / 2);
+    const filaAnchor = offsetPixelesAFilaAnchor(ws, filaInicioTabla, offsetPx);
+    ws.addImage(imgId, { tl: { col: 0.3, row: filaAnchor }, ext: { width: ANCHO_ICONO, height: alto } });
+  }
+
+  // "+" y "=" centrados verticalmente en toda la altura de la tabla.
+  ws.mergeCells(`D${filaInicioTabla}:D${filaFinTabla}`);
+  ws.getCell(`D${filaInicioTabla}`).value = '+';
+  ws.getCell(`D${filaInicioTabla}`).font = { bold: true, size: 20 };
+  ws.getCell(`D${filaInicioTabla}`).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  ws.mergeCells(`H${filaInicioTabla}:H${filaFinTabla}`);
+  ws.getCell(`H${filaInicioTabla}`).value = '=';
+  ws.getCell(`H${filaInicioTabla}`).font = { bold: true, size: 20 };
+  ws.getCell(`H${filaInicioTabla}`).alignment = { horizontal: 'center', vertical: 'middle' };
+
+  ponerBordesTabla(ws, filaGrupoHeader, filaFinTabla);
   fila += 2;
 
   ws.mergeCells(`A${fila}:I${fila}`);
