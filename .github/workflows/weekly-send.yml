@@ -2,8 +2,8 @@ name: Envío semanal de Weeklies (lunes)
 
 on:
   schedule:
-    # 13:00 UTC = 7:00 AM hora de Ciudad de México (CST, UTC-6), todos los lunes.
-    - cron: '0 13 * * 1'
+    # 11:00 UTC = 5:00 AM hora de Ciudad de México (CST, UTC-6), todos los lunes.
+    - cron: '0 11 * * 1'
   workflow_dispatch: {} # permite dispararlo a mano desde la pestaña "Actions" de GitHub, para pruebas
 
 jobs:
