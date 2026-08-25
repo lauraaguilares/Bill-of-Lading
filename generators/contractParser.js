@@ -51,38 +51,49 @@ async function parsearContrato(filePath) {
     : extraer(normalizado, /Destination \(where we deliver your household goods\):\s*\n([\s\S]+?)\n2\./, 'dirección de destino').trim();
 
   const origenAmount = idioma === 'es'
-    ? Number(extraer(sinSaltos, /hasta ([\d,]+) pies cúbicos[\s\S]{0,60}?\(Monto Original\)/, 'Origin Amount').replace(/,/g, ''))
-    : Number(extraer(sinSaltos, /up to ([\d,]+) cubic feet[\s\S]{0,40}\(Origin Amount\)/, 'Origin Amount').replace(/,/g, ''));
+    ? Number(extraer(sinSaltos, /hasta ([\d,]+) pies(?: cúbicos)?[\s\S]{0,60}?\(Monto Original\)/, 'Origin Amount').replace(/,/g, ''))
+    : Number(extraer(sinSaltos, /up to ([\d,]+) (?:cubic )?feet[\s\S]{0,40}\(Origin Amount\)/, 'Origin Amount').replace(/,/g, ''));
 
   const destinationAmount = idioma === 'es'
     ? Number(extraer(sinSaltos, /hasta ([\d,]+) pies cúbicos[\s\S]{0,80}?\(Monto Destino\)/, 'Destination Amount').replace(/,/g, ''))
     : Number(extraer(sinSaltos, /up to ([\d,]+) cubic feet[\s\S]{0,60}\(Destination Amount\)/, 'Destination Amount').replace(/,/g, ''));
 
-  const trailerExplicito = idioma === 'es'
-    ? sinSaltos.match(/(?:remolque|tráiler) de (\d+) pies/)
-    : sinSaltos.match(/we will have delivered to Origin a (\d+)-foot trailer/i);
+  const paisOrigen = detectarPais(origenTexto);
+  const paisDestino = detectarPais(destinoTexto);
+  const esNorthbound = paisOrigen === 'MX' && paisDestino !== 'MX';
 
   let trailerSizeUS;
-  if (trailerExplicito) {
-    trailerSizeUS = Number(trailerExplicito[1]);
-  } else if (origenAmount === 1344) {
-    trailerSizeUS = 26; // confirmado: así se reconoce el 26ft, que no menciona tamaño
-  } else {
-    throw new Error(
-      `No se pudo determinar el tamaño de trailer/camión — el contrato no menciona un tamaño ` +
-      `explícito y el Origin Amount (${origenAmount} cf) no coincide con el patrón conocido de 26ft ` +
-      `(1,344 cf). Puede ser un tamaño que todavía no está configurado — avísame.`
-    );
-  }
-
   let contractedLinearFeet;
   let precioPorPieAdicional = 0; // 26ft y 53ft: siempre $0, confirmado (no hay ese cargo)
+  let preciosMexico = [];
+  let origenTrailerEs53 = false;
 
-  if (trailerSizeUS === 28) {
+  if (esNorthbound) {
+    // Northbound (México → EE.UU./Canadá): el trailer con desglose por pie lineal está en
+    // Destino (Sección 4.E), no en Origen. El camión de Origen (México) no tiene tabla de
+    // brackets — confirmado por Laura: se incluye el camión completo sin cargo adicional,
+    // sin importar cuánto traigan (hasta su capacidad física).
+    const trailerExplicitoDestino = idioma === 'es'
+      ? sinSaltos.match(/(?:remolque|tráiler) de (\d+) pies/)
+      : sinSaltos.match(/deliver to Destination using an? (\d+)-foot trailer/i);
+    if (!trailerExplicitoDestino) {
+      throw new Error(
+        `No se pudo determinar el tamaño del tráiler de destino en un contrato Northbound. ` +
+        `Por ahora solo está soportado el caso de 28ft en destino — avísame si es otro tamaño.`
+      );
+    }
+    trailerSizeUS = Number(trailerExplicitoDestino[1]);
+    if (trailerSizeUS !== 28) {
+      throw new Error(
+        `Northbound con tráiler de ${trailerSizeUS}ft en destino todavía no está configurado ` +
+        `(solo 28ft por ahora, confirmado con Laura). Avísame para agregar este caso.`
+      );
+    }
+
     contractedLinearFeet = Number(
       idioma === 'es'
-        ? extraer(sinSaltos, /hasta (\d+) pies lineales[\s\S]{0,30}?\(Pies Lineales Contratados\)/, 'Pies Lineales Contratados')
-        : extraer(sinSaltos, /up to (\d+) linear feet\s*\(Contracted Linear Feet\)/, 'Contracted Linear Feet')
+        ? extraer(sinSaltos, /hasta (\d+) pies lineales del tráiler sin cargo adicional/, 'pies lineales incluidos (Northbound 4.E)')
+        : extraer(sinSaltos, /You may use up to (\d+) linear feet of the trailer at no additional charge/, 'pies lineales incluidos (Northbound 4.E)')
     );
     precioPorPieAdicional = Number(
       (idioma === 'es'
@@ -90,38 +101,77 @@ async function parsearContrato(filePath) {
         : extraer(sinSaltos, /Each additional\s+linear foot is charged at \$([\d,.]+)/, 'precio por pie lineal adicional')
       ).replace(/,/g, '')
     );
-  } else if (trailerSizeUS === 26) {
-    contractedLinearFeet = Number(
-      idioma === 'es'
-        ? extraer(sinSaltos, /no pueden ocupar más de (\d+) pies lineales/, 'pies lineales (26ft)')
-        : extraer(sinSaltos, /(?:no more than|occupy no more than) (\d+) linear feet/, 'linear feet (26ft)')
-    );
-  } else if (trailerSizeUS === 53) {
-    const trailer53 = TRAILER_US[53];
-    const punto = trailer53.puntosDeQuiebre.find((p) => p.cubicFt === origenAmount);
-    if (!punto) {
+
+    // Imagen del camión de Origen (México): large.png por default, trailer53.png solo si el
+    // contrato menciona explícitamente un tráiler de 53 pies en la Sección 4.B (Origen) —
+    // confirmado con Laura. En este contrato (Mattman) 4.B no menciona tamaño ("a truck"
+    // genérico), así que usa large.png.
+    const bloqueOrigenTexto = idioma === 'es'
+      ? (normalizado.match(/4\.\s?B\.[\s\S]+?4\.\s?C\./) || [''])[0]
+      : (normalizado.match(/4\.\s?B\.[\s\S]+?4\.\s?C\./) || [''])[0];
+    origenTrailerEs53 = /53[\s-]foot|53 pies/i.test(bloqueOrigenTexto);
+  } else {
+    const trailerExplicito = idioma === 'es'
+      ? sinSaltos.match(/(?:remolque|tráiler) de (\d+) pies/)
+      : sinSaltos.match(/we will have delivered to Origin a (\d+)-foot trailer/i);
+
+    if (trailerExplicito) {
+      trailerSizeUS = Number(trailerExplicito[1]);
+    } else if (origenAmount === 1344) {
+      trailerSizeUS = 26; // confirmado: así se reconoce el 26ft, que no menciona tamaño
+    } else {
       throw new Error(
-        `El Origin Amount del contrato (${origenAmount} cf) no coincide exactamente con ningún ` +
-        `punto de quiebre conocido de 53ft (600/1,000/1,450/2,400/3,400). Revisa el contrato a mano.`
+        `No se pudo determinar el tamaño de trailer/camión — el contrato no menciona un tamaño ` +
+        `explícito y el Origin Amount (${origenAmount} cf) no coincide con el patrón conocido de 26ft ` +
+        `(1,344 cf). Puede ser un tamaño que todavía no está configurado — avísame.`
       );
     }
-    contractedLinearFeet = punto.pieLineal;
-  } else {
-    throw new Error(`Trailer de ${trailerSizeUS} ft todavía no está configurado. Avísame para agregarlo.`);
-  }
 
-  const bloqueMexico = idioma === 'es'
-    ? extraer(
-        normalizado,
-        /excedentes\s+necesarios para el transporte al Destino:\s*\n([\s\S]+?)\n\s*4\.\s?F\./,
-        'tabla de precios adicionales en México'
-      )
-    : extraer(
-        normalizado,
-        /needed for transportation to Destination:\s*\n([\s\S]+?)\n\s*4\.F/,
-        'tabla de precios adicionales en México'
+    if (trailerSizeUS === 28) {
+      contractedLinearFeet = Number(
+        idioma === 'es'
+          ? extraer(sinSaltos, /hasta (\d+) pies lineales[\s\S]{0,30}?\(Pies Lineales Contratados\)/, 'Pies Lineales Contratados')
+          : extraer(sinSaltos, /up to (\d+) linear feet\s*\(Contracted Linear Feet\)/, 'Contracted Linear Feet')
       );
-  const preciosMexico = parsearBloquePreciosMexico(bloqueMexico, idioma);
+      precioPorPieAdicional = Number(
+        (idioma === 'es'
+          ? extraer(sinSaltos, /[Cc]ada pie lineal adicional se cobra a \$([\d,.]+)/, 'precio por pie lineal adicional')
+          : extraer(sinSaltos, /Each additional\s+linear foot is charged at \$([\d,.]+)/, 'precio por pie lineal adicional')
+        ).replace(/,/g, '')
+      );
+    } else if (trailerSizeUS === 26) {
+      contractedLinearFeet = Number(
+        idioma === 'es'
+          ? extraer(sinSaltos, /no pueden ocupar más de (\d+) pies lineales/, 'pies lineales (26ft)')
+          : extraer(sinSaltos, /(?:no more than|occupy no more than) (\d+) linear feet/, 'linear feet (26ft)')
+      );
+    } else if (trailerSizeUS === 53) {
+      const trailer53 = TRAILER_US[53];
+      const punto = trailer53.puntosDeQuiebre.find((p) => p.cubicFt === origenAmount);
+      if (!punto) {
+        throw new Error(
+          `El Origin Amount del contrato (${origenAmount} cf) no coincide exactamente con ningún ` +
+          `punto de quiebre conocido de 53ft (600/1,000/1,450/2,400/3,400). Revisa el contrato a mano.`
+        );
+      }
+      contractedLinearFeet = punto.pieLineal;
+    } else {
+      throw new Error(`Trailer de ${trailerSizeUS} ft todavía no está configurado. Avísame para agregarlo.`);
+    }
+
+    const bloqueMexico = idioma === 'es'
+      ? extraer(
+          normalizado,
+          /excedentes\s+necesarios para el transporte al Destino:\s*\n([\s\S]+?)\n\s*4\.\s?F\./,
+          'tabla de precios adicionales en México'
+        )
+      : extraer(
+          normalizado,
+          /needed for transportation to Destination:\s*\n([\s\S]+?)\n\s*4\.F/,
+          'tabla de precios adicionales en México'
+        );
+    preciosMexico = parsearBloquePreciosMexico(bloqueMexico, idioma);
+  }
 
   let precioTotalContrato = null;
   try {
@@ -135,9 +185,6 @@ async function parsearContrato(filePath) {
     // se deja en null; solo hace falta para 26ft
   }
 
-  const paisOrigen = detectarPais(origenTexto);
-  const paisDestino = detectarPais(destinoTexto);
-
   return {
     clientName: clientName.trim(),
     idioma,
@@ -145,6 +192,7 @@ async function parsearContrato(filePath) {
     destinoTexto,
     paisOrigen,
     paisDestino,
+    esNorthbound,
     origenAmount,
     destinationAmount,
     contractedLinearFeet,
@@ -152,6 +200,7 @@ async function parsearContrato(filePath) {
     precioTotalContrato,
     trailerSizeUS,
     preciosMexico,
+    origenTrailerEs53,
   };
 }
 
@@ -197,10 +246,22 @@ function parsearPrecio(texto) {
   return Number(texto.replace(/[$,]/g, ''));
 }
 
+// Abreviaciones de estado mexicano (2-4 letras) que aparecen antes del código postal en
+// direcciones que NO mencionan "Mexico" explícitamente (ej. "San Miguel de Allende, GTO
+// 37883") — confirmado con el contrato de Mattman (Northbound), donde el origen en México
+// no incluye la palabra "Mexico" en ningún lado de la dirección.
+const ESTADOS_MX = [
+  'AGU', 'BCN', 'BCS', 'CAM', 'CHP', 'CHH', 'CDMX', 'COA', 'COL', 'DUR', 'GUA', 'GTO', 'GRO',
+  'HID', 'JAL', 'MEX', 'MIC', 'MOR', 'NAY', 'NLE', 'OAX', 'PUE', 'QUE', 'QRO', 'ROO', 'SLP',
+  'SIN', 'SON', 'TAB', 'TAM', 'TLA', 'VER', 'YUC', 'ZAC',
+];
+const ESTADOS_MX_REGEX = new RegExp(`\\b(${ESTADOS_MX.join('|')})\\b`);
+
 function detectarPais(direccionTexto) {
   const t = direccionTexto.toLowerCase();
   if (t.includes('mexico') || t.includes('méxico')) return 'MX';
   if (t.includes('canada') || t.includes('canadá')) return 'CA';
+  if (ESTADOS_MX_REGEX.test(direccionTexto)) return 'MX';
   return 'US';
 }
 
