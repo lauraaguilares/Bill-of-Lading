@@ -72,6 +72,7 @@ const WEEKLY_TIPOS = {
     formatoSalida: 'excel',
     columnas: [
       { col: 'CLIENT', label: 'CLIENT', identidad: true },
+      { col: "Client's Phone", label: "Client's Phone", identidad: true },
       { col: 'TAGS', label: 'TAGS', identidad: true },
       { col: 'PMA', label: 'PMA', identidad: true },
       { col: 'X CUSTOMS Day for Truck to Arrive', label: 'Arrival day', esFechaPrincipal: true },
@@ -79,6 +80,7 @@ const WEEKLY_TIPOS = {
       { col: 'NOB Transportation Company', label: 'NOB Transportation Company' },
       { col: 'X NOB Day for Truck to Arrive', label: 'NOB Day for Truck to Arrive' },
       { col: 'NOB Truck Type', label: 'NOB Truck Type', operativa: true },
+      { col: 'NOB Address', label: 'NOB Address', operativa: true },
       { col: 'Trailer Number', label: 'Trailer Number' },
       { col: 'Size of the Shipment', label: 'Size of the Shipment', operativa: true },
       { col: 'SOB Truck Type', label: 'Truck Type in MX', operativa: true },
