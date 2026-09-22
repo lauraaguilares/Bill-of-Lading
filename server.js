@@ -277,18 +277,35 @@ app.post('/generate/weekly', async (req, res) => {
  * transportistas, brokers y crews con embarques activos) y se las manda a Laura en un
  * solo correo, para que ella las reenvíe a cada quien.
  */
+// Candado simple: evita que dos generaciones corran al mismo tiempo (dos clics del link
+// de prueba, un doble disparo del cron, etc.). Sin esto, ambas corridas escriben archivos
+// con el mismo nombre en /app/output y se pisan entre sí — eso causaba los "No such file
+// or directory" intermitentes en los weeklies de crew.
+let weekliesEnProceso = false;
+
 app.get('/cron/send-weeklies', async (req, res) => {
   if (!process.env.CRON_SECRET || req.query.secret !== process.env.CRON_SECRET) {
     return res.status(401).json({ error: 'No autorizado.' });
+  }
+
+  if (weekliesEnProceso) {
+    return res.status(409).json({
+      error: 'Ya hay una generación de weeklies en curso. Espera a que termine (revisa los Logs) antes de disparar otra.',
+    });
   }
 
   // Responde de inmediato: generar todas las weeklies (varios transportistas + brokers +
   // ~10 crews en imagen) tarda varios minutos, y Render corta la conexión HTTP antes de que
   // termine si se espera aquí. El trabajo real sigue en segundo plano después de responder.
   res.json({ iniciado: true, mensaje: 'Generación en curso, llegará un correo cuando termine.' });
-  generarYEnviarTodasLasWeeklies().catch((err) => {
-    console.error('[cron/send-weeklies] ERROR de fondo:', err);
-  });
+  weekliesEnProceso = true;
+  generarYEnviarTodasLasWeeklies()
+    .catch((err) => {
+      console.error('[cron/send-weeklies] ERROR de fondo:', err);
+    })
+    .finally(() => {
+      weekliesEnProceso = false;
+    });
 });
 
 async function generarYEnviarTodasLasWeeklies() {
