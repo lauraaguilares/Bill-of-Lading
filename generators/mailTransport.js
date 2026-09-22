@@ -18,7 +18,7 @@ const RESEND_API_URL = 'https://api.resend.com/emails';
  * @param {string} opciones.apiKey - RESEND_API_KEY
  * @param {string} opciones.from - Remitente. Sin dominio propio verificado en Resend, debe
  *   ser 'onboarding@resend.dev' (el dominio de pruebas que Resend da por default).
- * @param {string} opciones.to - Destinatario.
+ * @param {string|string[]} opciones.to - Destinatario(s). Un correo, o un arreglo de varios.
  * @param {string} opciones.subject
  * @param {string} opciones.text
  * @param {Array<{filename: string, path: string}>} opciones.attachments - igual formato
@@ -41,7 +41,7 @@ async function enviarCorreo({ apiKey, from, to, subject, text, attachments = [] 
     },
     body: JSON.stringify({
       from,
-      to: [to],
+      to: Array.isArray(to) ? to : [to],
       subject,
       text,
       attachments: attachmentsBase64,
