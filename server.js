@@ -341,10 +341,15 @@ async function generarYEnviarTodasLasWeeklies() {
     }
 
     console.log('[cron/send-weeklies] Generación terminada, armando correo con', adjuntos.length, 'adjuntos...');
+    // WEEKLIES_RECIPIENTS: lista de correos separados por coma. Si no está configurada,
+    // cae de vuelta a GMAIL_USER (comportamiento anterior) para no romper nada.
+    const destinatarios = process.env.WEEKLIES_RECIPIENTS
+      ? process.env.WEEKLIES_RECIPIENTS.split(',').map((c) => c.trim()).filter(Boolean)
+      : [process.env.GMAIL_USER];
     await enviarCorreo({
       apiKey: process.env.RESEND_API_KEY,
       from: 'onboarding@resend.dev',
-      to: process.env.GMAIL_USER, // se manda a Laura misma, ella reenvía a cada quien
+      to: destinatarios,
       subject: `Weeklies del ${new Date().toLocaleDateString('en-US')} — listas para reenviar`,
       text: `Se generaron ${resumen.generadas.length} weeklies:\n\n${resumen.generadas.join('\n')}` +
         (resumen.errores.length ? `\n\nCon errores:\n${resumen.errores.join('\n')}` : ''),
