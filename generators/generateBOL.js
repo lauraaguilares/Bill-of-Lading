@@ -24,6 +24,19 @@ const TEMPLATE_PATH = path.join(__dirname, '..', 'templates', 'BOL_plantilla_uni
 const OUTPUT_DIR = path.join(__dirname, '..', 'output');
 
 /**
+ * Reemplaza caracteres que no se pueden usar en nombres de archivo (/ \ : * ? " < > |).
+ * Ej. un cliente capturado como "MICHAEL/ RICHARD LINTHICUM" generaba una ruta con una
+ * carpeta inexistente ("LIVE - MICHAEL/") y fallaba con ENOENT al guardar.
+ */
+function limpiarNombreArchivo(texto) {
+  return String(texto)
+    .replace(/[\/\\:*?"<>|]/g, '-')
+    .replace(/\s*-\s*-+\s*/g, ' - ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * shipment: {
  *   clientName: string,
  *   clientLastName: string,
@@ -105,9 +118,11 @@ async function generateBOL(shipment) {
   // --- Guardar ---
   // Formato confirmado: "LIVE - Cliente - FechaDeCarga.xlsx" (LIVE/NORTHBOUND/BONDED según
   // el TAGS real del embarque, no siempre literal "LIVE").
+  // El nombre del cliente se limpia: si trae "/" u otros caracteres inválidos, el archivo
+  // no se podía guardar (ENOENT).
   const estado = resolveEstadoArchivo(shipment.tags);
   const fechaParaNombre = fechaDocumentoObj.toLocaleDateString('en-US').replace(/\//g, '-');
-  const outName = `${estado} - ${shipment.clientName} - ${fechaParaNombre}.xlsx`;
+  const outName = `${estado} - ${limpiarNombreArchivo(shipment.clientName)} - ${fechaParaNombre}.xlsx`;
   const outPath = path.join(OUTPUT_DIR, outName);
   await workbook.xlsx.writeFile(outPath);
   return outPath;
